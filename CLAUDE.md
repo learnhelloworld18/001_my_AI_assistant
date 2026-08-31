@@ -55,6 +55,13 @@ exhaustive correctness.
 - No exact-match-style evaluate/revision loop. That pattern exists to
   satisfy strict grading and doesn't belong in this project — it adds
   latency for no benefit here.
+- **Confidence tags are evidence-based, never a raw model self-report
+  or an invented percentage.** Each agent's confidence signal is tied
+  to something that actually happened (RAG relevance score, whether
+  `visit_webpage` succeeded, whether `validate_code.py` passed) — see
+  `REQUIREMENTS.md`'s Confidence & validation section. Asking a model
+  to grade its own certainty as "X% confident" is not acceptable here;
+  it's uncalibrated and reads as more rigorous than it is.
 - Use typed state (TypedDict or Pydantic) for any LangGraph state
   schema — don't pass around bare dicts.
 - Test each agent node in isolation (a script or REPL call) before

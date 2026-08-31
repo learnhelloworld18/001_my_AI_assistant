@@ -100,6 +100,7 @@ path and metadata):
 |---|---|---|
 | `tech_notes` | Articles/notes you read, chunked | `docs_agent` |
 | `resume_interview` | Resume bullets, past interview answers, job descriptions | `docs_agent` |
+| ↳ seed source | `~/Documents/application_docs/PREP/` — company-specific interview prep + `STAR/` resume-points docs + `01_extra notes/<company>/`. **Not** `spark.md` in that same folder — that's general Apache Spark reference material, not interview-specific, and belongs in `tech_notes` via its own ingest call instead |
 | `conversation_memory` | Per-session summaries (not raw transcripts) | supervisor / any agent, for cross-session continuity |
 
 **Conversation memory, specifically**:
@@ -112,6 +113,67 @@ path and metadata):
 - This is a deliberately different pattern from `tech_notes`: store a
   distilled summary, not the raw conversation, to keep retrieval signal
   clean.
+
+**Ingestion mechanics (`/ingest <path> [--collection <name>]`)**:
+- `--collection` defaults to `tech_notes` if omitted; pass
+  `--collection resume_interview` for the PREP folder.
+- Walks subdirectories recursively (the PREP folder has nested
+  structure: `STAR/`, `01_extra notes/<company>/`) — not top-level
+  files only.
+- File-type allowlist: `.md`, `.docx`, `.pdf`, `.txt` only. Everything
+  else (`.DS_Store`, `images/*.png`, etc.) is silently skipped, not an
+  error.
+- **Backup-file exclusion**: skip any file matching a `*_BACKUP_*`
+  naming pattern (e.g. `resume_points_STAR_michelin_BACKUP_2026-08-09.docx`)
+  — ingesting dated backups alongside current versions would put stale,
+  conflicting resume points into retrieval right next to the current
+  ones.
+
+## Confidence & validation (evidence-based, not model self-report)
+
+No agent gets a full correctness-grading loop (deliberately dropped —
+see Speed-first design decisions), but every agent that has a *real,
+measurable signal* available surfaces it. **Not** a raw percentage —
+there is no calibrated probability model here, only a few concrete
+signals, and presenting those as "82% confident" would be false
+precision, not honesty. Tiers instead, each tied to something that
+actually happened, not the model grading itself:
+
+| Agent | Confidence signal | High tier | Low tier |
+|---|---|---|---|
+| `docs_agent` | RAG relevance score (the same number that gates whether a chunk is used at all) | above threshold — labeled grounded in `tech_notes`/`resume_interview` | below threshold — must say "my notes don't cover this well," not present a weak match as fact |
+| `research_agent` | did `visit_webpage` actually succeed on a real page, vs. only search snippets | visited and extracted specific content | only got snippets, or a visit failed |
+| `coding_agent` | did `validate_code.py` pass | validation passed cleanly | validation failed, or wasn't run |
+| `general_agent` | none — no tools, no grounding is possible | — | always labeled "general knowledge, not verified against your data" |
+
+- This is a genuine correction from an earlier, weaker version of this
+  idea (a prompt-only instruction for `research_agent` with no
+  post-hoc check) — the signal now reflects what the agent actually
+  did, not just what it was told to do.
+- Surfaced as a short tag on the response only when it's actually
+  informative — low-confidence answers get a visible note; the
+  `general_agent` tag is always shown since it's always true. No extra
+  LLM call for any of this — every signal already exists as a
+  byproduct of the tool call that already happened.
+
+**Updating ingested content is doable and logically correct — with one
+real requirement**: naive re-ingestion (just adding new embeddings) is
+*not* enough on its own, because it would leave old chunks from a
+since-edited file sitting in Chroma alongside the new ones, and
+retrieval would return both — stale and current versions of the same
+resume bullet competing in search results. The actual mechanism:
+- Track a manifest — `(source path, content hash, collection)` — in the
+  same local SQLite file already used for observability (one local DB,
+  not two).
+- On each `/ingest` run: unchanged files are skipped (hash matches, no
+  work); changed or new files are re-chunked/re-embedded, and Chroma's
+  metadata-filtered delete (`.delete(where={"source": path})`) removes
+  that file's *old* chunks **before** the new ones are added — never
+  append-only.
+- This means re-running `/ingest ~/Documents/application_docs/PREP
+  --collection resume_interview` any time those docs change is the
+  correct way to keep the collection current, not a special "update"
+  command — ingestion is idempotent and safe to re-run.
 
 ## Tool supply — LangChain tools, built from scratch
 
