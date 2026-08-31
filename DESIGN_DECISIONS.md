@@ -3,6 +3,18 @@
 Brief record of what changed from the first proposed architecture, and
 why. See `REQUIREMENTS.md` for the current spec in full.
 
+## REPL input — `prompt_toolkit` pulled forward from "later" to "now"
+
+- Originally scoped as Tier 1, explicitly deferred: "add only if input
+  history is later missed." Brought forward on explicit request for
+  autocomplete — typing `/` shows a dropdown of meta-commands, and
+  `/ingest <path>` gets filesystem-path completion.
+- Deliberately narrow: this only changes the *input* side. Output stays
+  plain streaming `print()` (Tier 0) — `rich`-style formatted output
+  (Tier 2) is still deferred, and normal conversational input (not
+  starting with `/`) gets no completion popup, keeping the common case
+  fast and uncluttered.
+
 ## Testing — formalized from an informal hard rule
 
 - `CLAUDE.md` already said "test each agent node in isolation," but

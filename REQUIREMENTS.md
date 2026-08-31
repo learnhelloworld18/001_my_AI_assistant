@@ -38,6 +38,16 @@ over accuracy.** This is not a graded/benchmarked system.
   `/exit`, `/stats` (recent observability summary), `/ingest <path>`
   (trigger RAG ingestion), `/clear` (reset session state). These bypass
   the supervisor entirely for speed and predictability.
+- **Autocomplete for meta-commands**: typing `/` shows a dropdown of
+  available commands (narrows as you type — `/i` → `/ingest`), and the
+  `<path>` argument to `/ingest` gets filesystem-path completion, same
+  idea as shell tab-completion. Brings in `prompt_toolkit` for this
+  specifically — the Tier 1 upgrade from Tooling stack, pulled forward
+  from "later if it bugs you" to now. **Only the input side changes** —
+  normal conversational input (not starting with `/`) gets no
+  completion popup, staying fast/uncluttered for the common case, and
+  output stays plain streaming `print()` (not adopting `rich` or
+  anything heavier — that's still deferred).
 - **Error handling**: any model call, tool call, or agent failure must
   be caught at the REPL loop level, shown as a short user-facing
   message, and logged (see Observability) — the REPL must never crash
@@ -249,7 +259,7 @@ implicit.
 | Concern | Tool | Notes |
 |---|---|---|
 | Dependency management | `uv` | matches the existing MCP CLI project's convention (`pyproject.toml` + lockfile) |
-| REPL/CLI | bare Python (`input()` + streaming `print()`) | Tier 0, no dependency — see Interaction model. `prompt_toolkit` only if input history is later missed |
+| REPL/CLI | `prompt_toolkit` for input (history + meta-command/path autocomplete), plain streaming `print()` for output | Tier 1 input, Tier 0 output — see Interaction model. `rich`-style formatted output (Tier 2) still deferred |
 | LLM serving | Ollama | already set up; `langchain-ollama` (`ChatOllama`) is the integration point |
 | Orchestration | LangGraph + `langgraph-supervisor` | |
 | Tools | LangChain (`@tool`/`Tool`) | see Tool supply |
@@ -447,10 +457,10 @@ immediately rather than build a throwaway text-only version first):
    self-hosted Langfuse (`docker-compose.langfuse.yml`) and generate its
    API keys into `.env` — do this now, not later, since observability
    gets wired in as each agent is built, starting with step 2.
-1. `main.py` — bare REPL loop with meta-commands (`/help`, `/exit`) and
-   top-level error handling wired in from the start, no agent routing
-   yet, one hardcoded response path, to prove the plumbing works
-   end to end.
+1. `main.py` — `prompt_toolkit`-backed REPL loop with meta-commands
+   (`/help`, `/exit`) and their autocomplete, plus top-level error
+   handling wired in from the start; no agent routing yet, one
+   hardcoded response path, to prove the plumbing works end to end.
 2. `langgraph-supervisor` wired to a single `research_agent` (fastest
    to stand up — reuses existing GAIA-project tools directly). **Also
    validate here** whether the small supervisor model (`llama3.2:1b/3b`)
