@@ -3,6 +3,18 @@
 Brief record of what changed from the first proposed architecture, and
 why. See `REQUIREMENTS.md` for the current spec in full.
 
+## Testing — formalized from an informal hard rule
+
+- `CLAUDE.md` already said "test each agent node in isolation," but
+  that meant "check it manually in a REPL," not a real test suite.
+  Formalized into two `pytest` tiers: component tests (`tests/unit/`,
+  mocked, fast, run by default and in `pre-commit`) and live dependency
+  smoke tests (`tests/live/`, `@pytest.mark.live`, opt-in only) — the
+  live tier exists specifically because a fully-mocked suite can pass
+  while the real integration is broken, which already happened once
+  (the `ddgs`/`duckduckgo-search` package-name mismatch in the GAIA
+  project, invisible until tested against a real environment).
+
 ## Orchestration
 
 - **Hand-rolled supervisor → `langgraph-supervisor`.** Originally
@@ -109,6 +121,35 @@ why. See `REQUIREMENTS.md` for the current spec in full.
   just whether the model was told to call it), `coding_agent` → whether
   `validate_code.py` passed, `general_agent` → always honestly labeled
   ungrounded, since it has no tools to check against.
+
+## Observability — Langfuse pulled forward from "later upgrade" to "from the start"
+
+- Original plan: hand-roll a SQLite + timing-wrapper system first (v1),
+  optionally upgrade to Langfuse later (v2) if the hand-rolled version
+  proved useful. Revised: **Langfuse from the start**, once "can we see
+  this visually, like a live dashboard" made clear a text-only v1 wasn't
+  actually the goal — no point hand-rolling something you're going to
+  replace immediately anyway.
+- Attaching `CallbackHandler` to the graph captures most of the planned
+  metrics (latency, token counts, tool I/O) **automatically** — the
+  custom `metrics.py` timing wrapper is now mostly unnecessary. Only a
+  few bespoke metrics (tool-never-chosen, RAG relevance,
+  confidence-tier) still need explicit instrumentation, logged via
+  Langfuse's own SDK rather than a second system.
+- `/stats` keeps its originally-designed behavior (a live text summary
+  printed in the terminal via the meta-command) — that requirement
+  didn't go away, it just now sources its data from Langfuse's API
+  instead of a hand-rolled SQLite store, so there's one system of
+  record with two views (terminal + browser dashboard).
+- **Named tradeoff, not a free upgrade**: self-hosted Langfuse is a
+  real multi-container Docker service — the one deliberate departure
+  from the "local-first, no server" pattern used everywhere else in
+  this project (Chroma, SQLite). Accepted consciously for the payoff of
+  a real live dashboard instead of building one.
+- The RAG ingestion manifest (source path + content hash, for idempotent
+  re-ingestion) still uses SQLite — that choice didn't change, it just
+  became its own dedicated file (`rag/manifest.db`) instead of sharing
+  a database with the now-removed observability SQLite store.
 
 ## Sub-agents — scoped down from an early broader idea
 

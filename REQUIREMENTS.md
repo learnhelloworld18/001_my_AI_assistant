@@ -162,9 +162,11 @@ real requirement**: naive re-ingestion (just adding new embeddings) is
 since-edited file sitting in Chroma alongside the new ones, and
 retrieval would return both — stale and current versions of the same
 resume bullet competing in search results. The actual mechanism:
-- Track a manifest — `(source path, content hash, collection)` — in the
-  same local SQLite file already used for observability (one local DB,
-  not two).
+- Track a manifest — `(source path, content hash, collection)` — in a
+  small local SQLite file (`rag/manifest.db`). This is now its own
+  dedicated file, not shared with observability — Langfuse replaced the
+  observability SQLite store, but this manifest still fits SQLite well
+  (simple structured local record, no server needed).
 - On each `/ingest` run: unchanged files are skipped (hash matches, no
   work); changed or new files are re-chunked/re-embedded, and Chroma's
   metadata-filtered delete (`.delete(where={"source": path})`) removes
@@ -254,9 +256,8 @@ implicit.
 | Vector DB | Chroma | |
 | Document parsing | `pypdf` (PDF), `python-docx` (DOCX), plain read (MD) | lightweight, per-format — not the heavier `unstructured` package unless these prove insufficient |
 | Web search | Tavily (`TAVILY_API_KEY`) | see Tool supply for rationale |
-| Observability v1 | SQLite + custom timing wrapper | |
-| Observability v2 (upgrade path) | Langfuse | |
-| Testing | `pytest` | |
+| Observability | Langfuse (self-hosted, Docker) | `CallbackHandler` on the graph; `/stats` reads back via Langfuse's API — see Observability section |
+| Testing | `pytest` — component tests (mocked, default) + live dependency smoke tests (`@pytest.mark.live`, opt-in via `pytest -m live`) | see Testing section |
 | Linting + formatting | `ruff` (both — not paired with Black, to avoid two tools disagreeing on style) | |
 | `.env` loading | `python-dotenv` | |
 | Secrets scanning | `gitleaks` via `pre-commit` | blocks commits with secret-looking content |
@@ -313,6 +314,36 @@ implicit.
   background coding agent does; revisit only if blocking calls become a
   real responsiveness problem.
 
+## Testing — two tiers, one command
+
+Formalizes the "test each agent node in isolation" hard rule (already
+in `CLAUDE.md`) into a real `pytest` suite, split by whether a test
+needs live external services:
+
+- **Component tests** (`tests/unit/`, default) — fast, mocked
+  dependencies, no live services. Covers the genuinely pure/
+  deterministic logic: `safety.py`'s scope check and denylist matching,
+  `validate_code.py`'s dispatch-by-file-extension, `rag/ingest.py`'s
+  content-hash tracking and `*_BACKUP_*` exclusion pattern, the
+  confidence-tier mapping, meta-command routing. Runs constantly, part
+  of the normal dev loop and the `pre-commit` hook.
+- **Live dependency tests** (`tests/live/`, opt-in) — a small number of
+  smoke tests against the real services this project depends on: Ollama
+  reachable and returns a completion, `nomic-embed-text` produces an
+  embedding, a value round-trips through Chroma, Tavily returns results
+  for a query, self-hosted Langfuse is reachable. This directly targets
+  the exact class of bug that bit the GAIA project — the `ddgs` vs
+  `duckduckgo-search` package-name mismatch was invisible until tested
+  against a real environment, not a mock.
+- **Implementation**: `@pytest.mark.live` on the smoke tests, with
+  `pytest` (no args) skipping them by default and `pytest -m live`
+  running them explicitly. One test command, two speeds — not two
+  separate tools to remember.
+- **Not a pre-commit hook.** Live tests are slower and network-
+  dependent; running them on every commit would fight the project's
+  responsiveness priority. Run manually, or after changing a model
+  name/dependency version/API key.
+
 ## Observability
 
 Since this project is optimizing for responsiveness, measure it —
@@ -335,46 +366,73 @@ don't just assume it.
 - **System**: tokens/sec throughput per model, context length used per
   call (catches silent prompt bloat).
 
-**Tooling approach — hand-roll first, same principle as the rest of
-this project:**
+**Tooling — Langfuse from the start** (superseded the earlier "hand-roll
+SQLite first, upgrade later" plan — decided to get a real live dashboard
+immediately rather than build a throwaway text-only version first):
 
-- **v1**: a timing wrapper/decorator around each graph node, logging
-  structured records (node name, duration, tokens, model) to a local
-  **SQLite** file — no server, consistent with the local-first Chroma
-  setup already planned.
-- **v2 (upgrade path)**: swap to **Langfuse** — self-hostable, matches
-  the local-first approach, and is what the reference GAIA agent
-  example (`CallbackHandler`/`get_client()`) already used, so it's a
-  recognized pattern rather than a cold start. LangSmith is a viable
-  hosted alternative if self-hosting Langfuse isn't wanted.
+- **Self-hosted Langfuse** (Docker) — attach `CallbackHandler` to the
+  compiled LangGraph graph (`.with_config(callbacks=[langfuse_handler])`,
+  same pattern the reference GAIA agent example used) and most of the
+  metrics above — latency per node, token counts, tool call
+  inputs/outputs — are captured **automatically**, no custom timing
+  wrapper needed. This is a real change of scope from the original plan:
+  Langfuse's own callback hooks replace most of what `metrics.py` would
+  have hand-rolled.
+- **What still needs custom instrumentation** (not automatic from the
+  callback handler, logged explicitly via the Langfuse SDK's
+  score/event API — still all inside Langfuse, not a second system):
+  which tools are *never chosen* (needs aggregation across sessions,
+  not a per-call trace), RAG chunks-retrieved-vs-referenced, and the
+  confidence tier assigned per response (see Confidence & validation).
+- **`/stats`** keeps its original behavior — a live text summary printed
+  in the terminal — but now sources that data from **Langfuse's API**
+  (querying recent traces/sessions) instead of a hand-rolled SQLite
+  store. One system of record (Langfuse), two ways to view it: the
+  terminal for a quick glance via `/stats`, the browser dashboard for
+  anything deeper.
+- **Honest tradeoff, stated plainly**: this is a heavier operational
+  piece than anything else in this project. Chroma and SQLite were
+  chosen specifically because they need *no server*; self-hosted
+  Langfuse runs as a multi-container Docker service (web app + Postgres,
+  depending on version) that needs to actually be running for the app
+  to trace anything. This is a deliberate, accepted departure from the
+  "local-first, no server" pattern elsewhere — the payoff (a real live
+  dashboard, decided over building one) was judged worth it.
+- Needs `LANGFUSE_PUBLIC_KEY`, `LANGFUSE_SECRET_KEY`, `LANGFUSE_HOST` in
+  `.env` (generated by Langfuse's own UI on first setup) — same secrets
+  handling as every other credential in this project.
 
 ## Suggested module structure
 
 ```
 001_my_AI_assistant/
-  .env.example              # placeholder secrets, committed (incl. TAVILY_API_KEY)
-  .gitignore                 # .env, __pycache__, .venv, etc — from commit #1
-  .pre-commit-config.yaml     # gitleaks, ruff, pytest hooks
-  pyproject.toml               # uv-managed deps, ruff config
-  main.py                       # REPL entry point + meta-commands + error handling
-  supervisor.py                  # langgraph-supervisor setup: agents + routing
+  .env.example                # placeholder secrets, committed (TAVILY_API_KEY, LANGFUSE_*)
+  .gitignore                   # .env, __pycache__, .venv, etc — from commit #1
+  .pre-commit-config.yaml       # gitleaks, ruff, pytest hooks
+  docker-compose.langfuse.yml    # self-hosted Langfuse (web app + Postgres)
+  pyproject.toml                  # uv-managed deps, ruff config
+  main.py                          # REPL entry point + meta-commands + error handling
+  supervisor.py                     # langgraph-supervisor setup: agents + routing
   agents/
     coding_agent.py
     research_agent.py
     docs_agent.py
     general_agent.py
-  tools/                          # LangChain tools, built from scratch
-    safety.py                      # working-dir scope, confirmation gate, denylist
-    validate_code.py                # ruff/sqlfluff/terraform validate/dbt parse dispatch
+  tools/                              # LangChain tools, built from scratch
+    safety.py                          # working-dir scope, confirmation gate, denylist
+    validate_code.py                    # ruff/sqlfluff/terraform validate/dbt parse dispatch
   rag/
-    ingest.py                        # chunk + embed + store personal notes (pypdf/python-docx/md)
-    query.py                          # retrieve + generate
-    memory.py                          # session summarization + conversation_memory
+    ingest.py                            # chunk + embed + store personal notes (pypdf/python-docx/md)
+    query.py                              # retrieve + generate
+    memory.py                              # session summarization + conversation_memory
+    manifest.db                             # SQLite: source path -> content hash, for idempotent re-ingest
   observability/
-    metrics.py                         # timing wrapper/decorator + SQLite logging
-    report.py                           # simple CLI summary of recent session metrics
-  state.py                               # shared graph state schema
-  tests/                                  # pytest, one file per agent/tool at minimum
+    langfuse_client.py                       # CallbackHandler wiring + custom score/event calls
+    stats.py                                  # /stats: pulls a text summary from Langfuse's API
+  state.py                                     # shared graph state schema
+  tests/
+    unit/                                       # component tests, mocked, default pytest run
+    live/                                        # live dependency smoke tests, @pytest.mark.live
 ```
 
 ## Suggested build order
@@ -382,9 +440,13 @@ this project:**
 0. **Repo scaffolding** — `uv init`, `pyproject.toml`, `.gitignore`
    (covering `.env` before anything else is committed), `.env.example`,
    `.pre-commit-config.yaml` with `gitleaks` wired in (add `ruff`/
-   `pytest` hooks once there's code for them to check). Verify
+   `pytest` hooks once there's code for them to check), `pytest`
+   markers config (`live` marker, default run excludes it). Verify
    `.gitignore` + the `gitleaks` hook are both working *before* the
-   first commit that touches any secret-adjacent code.
+   first commit that touches any secret-adjacent code. Also stand up
+   self-hosted Langfuse (`docker-compose.langfuse.yml`) and generate its
+   API keys into `.env` — do this now, not later, since observability
+   gets wired in as each agent is built, starting with step 2.
 1. `main.py` — bare REPL loop with meta-commands (`/help`, `/exit`) and
    top-level error handling wired in from the start, no agent routing
    yet, one hardcoded response path, to prove the plumbing works
@@ -408,7 +470,9 @@ this project:**
    collection, wired into session start/end in `main.py`.
 7. Tune `langgraph-supervisor`'s routing (prompt/model choice) for
    ambiguous queries once all four agents exist.
-8. Basic observability (`metrics.py` timing wrapper + SQLite log) —
-   wire in as each agent is built, not bolted on at the end.
-9. Optionally: upgrade observability to Langfuse once the hand-rolled
-   version proves useful.
+8. `observability/langfuse_client.py` — attach `CallbackHandler` to the
+   supervisor graph as soon as it exists (step 2), not bolted on at the
+   end; add the custom score/event calls (tool-never-chosen, RAG
+   relevance, confidence tier) as each of those features gets built.
+9. `observability/stats.py` — `/stats` pulling a live text summary from
+   Langfuse's API.

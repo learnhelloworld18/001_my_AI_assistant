@@ -10,7 +10,7 @@ flowchart TD
     subgraph MetaCommands ["Meta-commands - bypass supervisor"]
         Help["/help<br/>print help text"]
         Ingest["/ingest path [--collection]<br/>run rag/ingest.py"]
-        Stats["/stats<br/>query SQLite, print summary"]
+        Stats["/stats<br/>query Langfuse API, print summary"]
         Clear["/clear<br/>reset in-memory session state"]
     end
 
@@ -87,17 +87,17 @@ flowchart TD
     SessionEnd["Session end"] --> Summarize["memory.py summarizes session<br/>llama3.2"]
     MemCol -.retrieved next session.-> Supervisor
 
-    subgraph Obs ["Observability"]
-        Metrics["metrics.py timing wrapper"]
-        SQLite[("SQLite log")]
+    subgraph Obs ["Observability - self-hosted Langfuse"]
+        Langfuse["CallbackHandler<br/>(automatic: latency, tokens, tool I/O)"]
+        LangfuseDash[("Langfuse dashboard<br/>+ API")]
     end
-    Supervisor -.-> Metrics
-    Coding -.-> Metrics
-    Research -.-> Metrics
-    Docs -.-> Metrics
-    General -.-> Metrics
-    Metrics --> SQLite
-    Stats --> SQLite
+    Supervisor -.-> Langfuse
+    Coding -.-> Langfuse
+    Research -.-> Langfuse
+    Docs -.-> Langfuse
+    General -.-> Langfuse
+    Langfuse --> LangfuseDash
+    Stats -.queries.-> LangfuseDash
 
     Ollama["Ollama - local model server"]
     Ollama -.serves.-> Supervisor
@@ -124,7 +124,7 @@ flowchart TD
     class Coding,Research,Docs,General agent
     class Validate,Safety,FS,Tavily,Visit,SearchNotes,SearchResume tool
     class Embedding,TechNotes,ResumeCol,MemCol storage
-    class Metrics,SQLite obs
+    class Langfuse,LangfuseDash obs
     class Ollama,Summarize serving
     class Aborted stop
 ```
@@ -144,6 +144,7 @@ state-changing ones stop for explicit user approval, and a decline
 aborts cleanly rather than silently doing nothing. Every RAG operation
 (ingest, both search tools, session-summary storage) passes through the
 same embedding step before touching Chroma — there's no direct
-tool-to-vector-DB edge anywhere. Every agent is instrumented by the same
-timing wrapper regardless of which one ran; meta-commands each have a
-real destination rather than one generic handler.
+tool-to-vector-DB edge anywhere. Every agent is instrumented by the
+same Langfuse callback handler regardless of which one ran;
+meta-commands each have a real destination rather than one generic
+handler.

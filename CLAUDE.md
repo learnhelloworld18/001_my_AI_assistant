@@ -64,8 +64,11 @@ exhaustive correctness.
   it's uncalibrated and reads as more rigorous than it is.
 - Use typed state (TypedDict or Pydantic) for any LangGraph state
   schema — don't pass around bare dicts.
-- Test each agent node in isolation (a script or REPL call) before
-  wiring it into the full supervisor graph.
+- Test each agent node in isolation before wiring it into the full
+  supervisor graph — as a real `pytest` component test (`tests/unit/`,
+  mocked dependencies), not just a manual REPL check. Live-service tests
+  (`tests/live/`, `@pytest.mark.live`) are opt-in only, never part of
+  the default test run or the `pre-commit` hook.
 - Keep this project's venv isolated with pinned dependencies. Don't
   assume a package is available because it's installed in some other
   project's shared environment — verify against this repo's own
