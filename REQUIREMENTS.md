@@ -33,6 +33,16 @@ over accuracy.** This is not a graded/benchmarked system.
   responses, iterative back-and-forth.
 - Responses should feel near-instant for simple queries (small models,
   warm `keep_alive`, streaming output, capped context window).
+- **Meta-commands**: not everything routes through an agent. Support
+  slash-style commands handled directly by `main.py` — e.g. `/help`,
+  `/exit`, `/stats` (recent observability summary), `/ingest <path>`
+  (trigger RAG ingestion), `/clear` (reset session state). These bypass
+  the supervisor entirely for speed and predictability.
+- **Error handling**: any model call, tool call, or agent failure must
+  be caught at the REPL loop level, shown as a short user-facing
+  message, and logged (see Observability) — the REPL must never crash
+  and exit on a single failed turn. The loop always returns to the
+  prompt.
 
 ## Architecture: multi-agent, supervisor pattern
 
@@ -48,11 +58,20 @@ supervisor (fast/small model, decides which agent acts next)
    └─→ general_agent   (small/fast model, no tools — quick chat, email drafts)
 ```
 
-- Build hand-rolled first (own supervisor loop, own routing), for the
-  learning value, before optionally trying LangGraph's prebuilt
-  `langgraph-supervisor` package for comparison.
+- Use LangGraph's prebuilt `langgraph-supervisor` package directly for
+  orchestration/routing, rather than hand-rolling it — less plumbing to
+  get right, and using it seriously (reading how it structures handoffs
+  and state) is itself the learning value here, not rebuilding it from
+  scratch.
 - Each agent has exactly one job — do not combine research and
   answer-writing (or any two responsibilities) in a single agent/prompt.
+- **Coherent stack, deliberately**: tools are built with LangChain,
+  orchestration with LangGraph (`langgraph-supervisor` is built on
+  LangGraph). Don't introduce a second, incompatible orchestration
+  framework — the whole point of this choice is that the tool layer and
+  the orchestration layer speak the same abstractions.
+
+See `ARCHITECTURE.md` for the full request-flow diagram.
 
 ## Models (task-specific, not one generalist)
 
@@ -74,15 +93,112 @@ supervisor (fast/small model, decides which agent acts next)
   RAG is always-on retrieval before generation; tool-based retrieval is
   an on-demand agent decision. Understand and use both patterns.
 
-## Tool supply — MCP-first where practical
+**Collections** (separate, not one blob — each has its own ingestion
+path and metadata):
 
-- Reuse existing MCP CLI project and `langchain-mcp-adapters` to plug
-  MCP servers in as LangChain tools rather than hand-writing every tool.
-- Filesystem, git, shell execution tools for `coding_agent` via MCP.
-- Web search/page-visiting tools for `research_agent` — reusable
-  directly from prior GAIA agent build (swap backend model to local
-  Ollama).
-- RAG tool for `docs_agent`, either hand-written or MCP-wrapped.
+| Collection | Contents | Used by |
+|---|---|---|
+| `tech_notes` | Articles/notes you read, chunked | `docs_agent` |
+| `resume_interview` | Resume bullets, past interview answers, job descriptions | `docs_agent` |
+| `conversation_memory` | Per-session summaries (not raw transcripts) | supervisor / any agent, for cross-session continuity |
+
+**Conversation memory, specifically**:
+- At the end of a REPL session (or on `/exit`), summarize that
+  session with a cheap fast model (e.g. `llama3.2:1b`) and store the
+  summary in `conversation_memory`.
+- At the start of a new session, retrieve relevant past summaries so
+  the assistant has continuity across restarts — the REPL is **not**
+  a blank slate every launch.
+- This is a deliberately different pattern from `tech_notes`: store a
+  distilled summary, not the raw conversation, to keep retrieval signal
+  clean.
+
+## Tool supply — LangChain tools, built from scratch
+
+- Use the existing MCP CLI project as a **reference only** (patterns,
+  conventions) — do not reuse its code directly.
+- **"Building from scratch" means writing new LangChain tools**
+  (`@tool` decorator / `Tool` class — same pattern as the GAIA
+  project's `tools/` package), scoped to this project's actual
+  requirements. This is the default construction method for every tool.
+- `langchain-mcp-adapters` is used only if/when this project connects
+  to an actual external MCP server later — it is not the default way
+  tools get built here.
+- Filesystem, git, shell execution tools for `coding_agent` — see
+  **Safety boundaries** below, non-negotiable for these specifically.
+  Also gets a **`validate_code` tool** (see Tooling stack) that lints
+  generated Python/SQL/Terraform/dbt before it's shown or written —
+  code correctness is a core use case, not an afterthought.
+- Web search via **Tavily** (LLM-optimized results, meaningfully more
+  reliable than DuckDuckGo based on direct experience in the prior GAIA
+  build — repeated DNS errors and inconsistent snippet quality there).
+  `page-visiting` tool (`visit_webpage`) reused as-is from that project.
+  Needs `TAVILY_API_KEY` in `.env`.
+- RAG tools for `docs_agent` — one tool per collection (`search_notes`,
+  `search_resume`), so the model's tool choice signals which collection
+  to search.
+
+## Safety boundaries — `coding_agent` (hard requirement, not optional)
+
+`coding_agent` is the only agent that can change real state on your
+machine (files, git history, shell commands) — it needs guardrails from
+first implementation, not bolted on after something goes wrong.
+
+- **Working-directory scope**: file/shell/git tools operate only within
+  an explicitly configured project root. No arbitrary absolute paths,
+  no traversal outside that root.
+- **Confirmation gate**: any state-changing action (file write/delete,
+  `git commit`/`push`/`reset`, any shell command that isn't read-only)
+  must be shown to the user and explicitly confirmed in the REPL before
+  executing. Read-only operations (file read, `git status`/`diff`/`log`)
+  do not require confirmation — keep friction only where it matters, to
+  preserve responsiveness.
+- **Hard denylist**: some actions are never executable, confirmation or
+  not — destructive recursive deletes, `sudo`/privilege escalation, and
+  reading/exfiltrating credential or secret files (see Secrets &
+  Credentials below).
+
+## Secrets & Credentials — hard rule: NEVER pushed to GitHub
+
+This repo is public. This rule is absolute, not a best-effort guideline.
+
+- `.env` (and any file holding API keys/tokens) must be in `.gitignore`
+  from the **very first commit** — before any code that reads a secret
+  is written.
+- Provide `.env.example` with placeholder values only, committed, so the
+  real `.env` structure is documented without exposing anything.
+- `coding_agent`'s denylist (above) explicitly blocks reading `.env` or
+  any credential file, even if asked to "look at the config."
+- Before every commit/push (agent-initiated or manual), verify no
+  secret-looking content is staged — same discipline as the GAIA
+  project's git workflow.
+- **Technical enforcement, not just discipline**: `gitleaks` wired in
+  via the `pre-commit` framework blocks a commit containing
+  secret-looking content automatically — a written rule alone isn't
+  enough of a safeguard for an absolute "NEVER."
+
+## Tooling stack
+
+Concrete libraries/tools per concern — avoid leaving any of these
+implicit.
+
+| Concern | Tool | Notes |
+|---|---|---|
+| Dependency management | `uv` | matches the existing MCP CLI project's convention (`pyproject.toml` + lockfile) |
+| REPL/CLI | bare Python (`input()` + streaming `print()`) | Tier 0, no dependency — see Interaction model. `prompt_toolkit` only if input history is later missed |
+| LLM serving | Ollama | already set up; `langchain-ollama` (`ChatOllama`) is the integration point |
+| Orchestration | LangGraph + `langgraph-supervisor` | |
+| Tools | LangChain (`@tool`/`Tool`) | see Tool supply |
+| Vector DB | Chroma | |
+| Document parsing | `pypdf` (PDF), `python-docx` (DOCX), plain read (MD) | lightweight, per-format — not the heavier `unstructured` package unless these prove insufficient |
+| Web search | Tavily (`TAVILY_API_KEY`) | see Tool supply for rationale |
+| Observability v1 | SQLite + custom timing wrapper | |
+| Observability v2 (upgrade path) | Langfuse | |
+| Testing | `pytest` | |
+| Linting + formatting | `ruff` (both — not paired with Black, to avoid two tools disagreeing on style) | |
+| `.env` loading | `python-dotenv` | |
+| Secrets scanning | `gitleaks` via `pre-commit` | blocks commits with secret-looking content |
+| Generated-code validation | `ruff check` (Python), `sqlfluff` (SQL/dbt), `terraform validate` (Terraform), `dbt parse` (dbt) | dispatched by a `validate_code` tool in `coding_agent`, see Tool supply |
 
 ## Speed-first design decisions
 
@@ -119,34 +235,118 @@ supervisor (fast/small model, decides which agent acts next)
   multi-step tool orchestration — design for "good enough and fast,"
   not for matching hosted-model reliability.
 
+## Sub-agents
+
+- **Dev workflow**: use Claude Code forks/subagents to parallelize
+  scaffolding once multiple independent files need writing (e.g. fork
+  off `coding_agent.py` while designing `docs_agent.py` in the main
+  thread), rather than always building strictly sequentially.
+- **Architectural reference, not a v1 requirement**: Claude Code's own
+  supervisor→subagent dispatch (async, results returned as events,
+  context isolation so a sub-task's noise doesn't pollute the
+  supervisor's context) is a real working instance of the pattern this
+  project builds. Worth studying explicitly. v1 of this project's
+  supervisor can stay synchronous/blocking for simplicity — a
+  single-user local CLI doesn't need true async orchestration the way a
+  background coding agent does; revisit only if blocking calls become a
+  real responsiveness problem.
+
+## Observability
+
+Since this project is optimizing for responsiveness, measure it —
+don't just assume it.
+
+**Metrics to track:**
+
+- **Latency**: time-to-first-token, total response time per turn,
+  per-node/per-agent time breakdown (which node is the bottleneck),
+  model cold-load penalty when Ollama swaps models.
+- **Routing**: which agent was selected per query, number of
+  agent-hops for chained multi-agent queries, heuristic-vs-classifier
+  fallback rate.
+- **Tool usage**: calls per query, success/failure rate, and which
+  available tools are *never actually chosen* — a signal the tool's
+  description needs work (this happened with `wikipedia_search` in the
+  prior GAIA build).
+- **RAG**: retrieval time, chunks retrieved vs. actually referenced in
+  the final answer (cheap proxy for retrieval relevance).
+- **System**: tokens/sec throughput per model, context length used per
+  call (catches silent prompt bloat).
+
+**Tooling approach — hand-roll first, same principle as the rest of
+this project:**
+
+- **v1**: a timing wrapper/decorator around each graph node, logging
+  structured records (node name, duration, tokens, model) to a local
+  **SQLite** file — no server, consistent with the local-first Chroma
+  setup already planned.
+- **v2 (upgrade path)**: swap to **Langfuse** — self-hostable, matches
+  the local-first approach, and is what the reference GAIA agent
+  example (`CallbackHandler`/`get_client()`) already used, so it's a
+  recognized pattern rather than a cold start. LangSmith is a viable
+  hosted alternative if self-hosting Langfuse isn't wanted.
+
 ## Suggested module structure
 
 ```
 001_my_AI_assistant/
-  main.py              # REPL entry point
-  supervisor.py         # orchestration graph / routing logic
+  .env.example              # placeholder secrets, committed (incl. TAVILY_API_KEY)
+  .gitignore                 # .env, __pycache__, .venv, etc — from commit #1
+  .pre-commit-config.yaml     # gitleaks, ruff, pytest hooks
+  pyproject.toml               # uv-managed deps, ruff config
+  main.py                       # REPL entry point + meta-commands + error handling
+  supervisor.py                  # langgraph-supervisor setup: agents + routing
   agents/
     coding_agent.py
     research_agent.py
     docs_agent.py
     general_agent.py
-  tools/                 # hand-written + MCP-wrapped tools
+  tools/                          # LangChain tools, built from scratch
+    safety.py                      # working-dir scope, confirmation gate, denylist
+    validate_code.py                # ruff/sqlfluff/terraform validate/dbt parse dispatch
   rag/
-    ingest.py            # chunk + embed + store personal notes
-    query.py              # retrieve + generate
-  state.py               # shared graph state schema
+    ingest.py                        # chunk + embed + store personal notes (pypdf/python-docx/md)
+    query.py                          # retrieve + generate
+    memory.py                          # session summarization + conversation_memory
+  observability/
+    metrics.py                         # timing wrapper/decorator + SQLite logging
+    report.py                           # simple CLI summary of recent session metrics
+  state.py                               # shared graph state schema
+  tests/                                  # pytest, one file per agent/tool at minimum
 ```
 
 ## Suggested build order
 
-1. `main.py` — bare REPL loop, no routing, one hardcoded agent, to prove
-   the plumbing works end to end.
-2. Hand-rolled supervisor + `research_agent` (fastest to stand up —
-   reuses existing GAIA-project tools directly).
-3. `coding_agent` with MCP-backed file/shell/git tools.
+0. **Repo scaffolding** — `uv init`, `pyproject.toml`, `.gitignore`
+   (covering `.env` before anything else is committed), `.env.example`,
+   `.pre-commit-config.yaml` with `gitleaks` wired in (add `ruff`/
+   `pytest` hooks once there's code for them to check). Verify
+   `.gitignore` + the `gitleaks` hook are both working *before* the
+   first commit that touches any secret-adjacent code.
+1. `main.py` — bare REPL loop with meta-commands (`/help`, `/exit`) and
+   top-level error handling wired in from the start, no agent routing
+   yet, one hardcoded response path, to prove the plumbing works
+   end to end.
+2. `langgraph-supervisor` wired to a single `research_agent` (fastest
+   to stand up — reuses existing GAIA-project tools directly). **Also
+   validate here** whether the small supervisor model (`llama3.2:1b/3b`)
+   routes reliably — local models were inconsistent at tool-selection in
+   the prior GAIA build, and `langgraph-supervisor` depends on reliable
+   structured handoffs. If it's not reliable enough, size up the
+   supervisor model before building further on top of it.
+3. `coding_agent` with file/shell/git tools — build `tools/safety.py`
+   (working-dir scope + confirmation gate + denylist) **before or
+   alongside** the tools themselves, not after. Include
+   `tools/validate_code.py` (`ruff check`/`sqlfluff`/`terraform
+   validate`/`dbt parse` dispatch) as part of this agent's toolset from
+   the start, not a later addition.
 4. RAG pipeline (`ingest.py` + `query.py`) + `docs_agent`.
 5. `general_agent` for fast low-stakes chat/drafts.
-6. Add small-model classifier fallback to the router for ambiguous
-   queries.
-7. Optionally: swap hand-rolled supervisor for `langgraph-supervisor` to
-   compare against the from-scratch version.
+6. `rag/memory.py` — session summarization + `conversation_memory`
+   collection, wired into session start/end in `main.py`.
+7. Tune `langgraph-supervisor`'s routing (prompt/model choice) for
+   ambiguous queries once all four agents exist.
+8. Basic observability (`metrics.py` timing wrapper + SQLite log) —
+   wire in as each agent is built, not bolted on at the end.
+9. Optionally: upgrade observability to Langfuse once the hand-rolled
+   version proves useful.
