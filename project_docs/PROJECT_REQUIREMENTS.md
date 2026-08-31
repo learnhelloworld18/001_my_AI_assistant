@@ -269,8 +269,10 @@ implicit.
 | Observability | Langfuse (self-hosted, Docker) | `CallbackHandler` on the graph; `/stats` reads back via Langfuse's API — see Observability section |
 | Testing | `pytest` — component tests (mocked, default) + live dependency smoke tests (`@pytest.mark.live`, opt-in via `pytest -m live`) | see Testing section |
 | Linting + formatting | `ruff` (both — not paired with Black, to avoid two tools disagreeing on style) | |
+| Type checking | `mypy` via `pre-commit` | pairs with the typed-state hard rule — static code analysis, distinct from Pydantic's runtime data validation |
 | `.env` loading | `python-dotenv` | |
-| Secrets scanning | `gitleaks` via `pre-commit` | blocks commits with secret-looking content |
+| Secrets scanning | `gitleaks` via `pre-commit` | blocks commits with secret-looking content; verified end-to-end (correctly blocks a real secret pattern, passes clean files) |
+| Pre-commit file hygiene | `pre-commit-hooks` (trailing-whitespace, end-of-file-fixer, check-toml, check-added-large-files, check-merge-conflict) | standard baseline, low-effort to include |
 | Generated-code validation | `ruff check` (Python), `sqlfluff` (SQL/dbt), `terraform validate` (Terraform), `dbt parse` (dbt) | dispatched by a `validate_code` tool in `coding_agent`, see Tool supply |
 
 ## Speed-first design decisions
@@ -330,21 +332,28 @@ Formalizes the "test each agent node in isolation" hard rule (already
 in `CLAUDE.md`) into a real `pytest` suite, split by whether a test
 needs live external services:
 
-- **Component tests** (`tests/unit/`, default) — fast, mocked
-  dependencies, no live services. Covers the genuinely pure/
-  deterministic logic: `safety.py`'s scope check and denylist matching,
-  `validate_code.py`'s dispatch-by-file-extension, `rag/ingest.py`'s
-  content-hash tracking and `*_BACKUP_*` exclusion pattern, the
-  confidence-tier mapping, meta-command routing. Runs constantly, part
-  of the normal dev loop and the `pre-commit` hook.
-- **Live dependency tests** (`tests/live/`, opt-in) — a small number of
-  smoke tests against the real services this project depends on: Ollama
-  reachable and returns a completion, `nomic-embed-text` produces an
-  embedding, a value round-trips through Chroma, Tavily returns results
-  for a query, self-hosted Langfuse is reachable. This directly targets
-  the exact class of bug that bit the GAIA project — the `ddgs` vs
-  `duckduckgo-search` package-name mismatch was invisible until tested
-  against a real environment, not a mock.
+- **Directory structure mirrors the source tree** — `tests/test_agents/`
+  mirrors `agents/`, `tests/test_tools/` mirrors `tools/`,
+  `tests/test_rag/` mirrors `rag/`, etc. "Where's the test for X" maps
+  directly to "where's X." See Suggested module structure below.
+- **Component tests** (default) — fast, mocked dependencies, no live
+  services. Covers the genuinely pure/deterministic logic: `safety.py`'s
+  scope check and denylist matching, `validate_code.py`'s
+  dispatch-by-file-extension, `rag/ingest.py`'s content-hash tracking
+  and `*_BACKUP_*` exclusion pattern, the confidence-tier mapping,
+  meta-command routing. Runs constantly, part of the normal dev loop and
+  the `pre-commit` hook.
+- **Live dependency tests** (opt-in, not a separate folder) — a small
+  number of smoke tests against the real services this project depends
+  on: Ollama reachable and returns a completion, `nomic-embed-text`
+  produces an embedding, a value round-trips through Chroma, Tavily
+  returns results for a query, self-hosted Langfuse is reachable. Marked
+  tests can live in the *same file* as their mocked counterparts (e.g.
+  `test_tools/test_web_search.py` has both) — the marker controls
+  execution, not file placement. This directly targets the exact class
+  of bug that bit the GAIA project — the `ddgs` vs `duckduckgo-search`
+  package-name mismatch was invisible until tested against a real
+  environment, not a mock.
 - **Implementation**: `@pytest.mark.live` on the smoke tests, with
   `pytest` (no args) skipping them by default and `pytest -m live`
   running them explicitly. One test command, two speeds — not two
@@ -418,9 +427,9 @@ immediately rather than build a throwaway text-only version first):
 001_my_AI_assistant/
   .env.example                # placeholder secrets, committed (TAVILY_API_KEY, LANGFUSE_*)
   .gitignore                   # .env, __pycache__, .venv, etc — from commit #1
-  .pre-commit-config.yaml       # gitleaks, ruff, pytest hooks
+  .pre-commit-config.yaml       # gitleaks, ruff-check + ruff-format, file hygiene, mypy
   docker-compose.langfuse.yml    # self-hosted Langfuse (web app + Postgres)
-  pyproject.toml                  # uv-managed deps, ruff config
+  pyproject.toml                  # uv-managed deps, ruff config, pytest markers
   main.py                          # REPL entry point + meta-commands + error handling
   supervisor.py                     # langgraph-supervisor setup: agents + routing
   agents/
@@ -440,9 +449,24 @@ immediately rather than build a throwaway text-only version first):
     langfuse_client.py                       # CallbackHandler wiring + custom score/event calls
     stats.py                                  # /stats: pulls a text summary from Langfuse's API
   state.py                                     # shared graph state schema
-  tests/
-    unit/                                       # component tests, mocked, default pytest run
-    live/                                        # live dependency smoke tests, @pytest.mark.live
+  tests/                                        # mirrors the source tree - "where's the test for X" = "where's X"
+    test_agents/
+      test_coding_agent.py
+      test_research_agent.py
+      test_docs_agent.py
+      test_general_agent.py
+    test_tools/
+      test_safety.py
+      test_validate_code.py               # mocked + @pytest.mark.live tests can share a file
+    test_rag/
+      test_ingest.py
+      test_query.py
+      test_memory.py
+    test_observability/
+      test_langfuse_client.py
+      test_stats.py
+    test_supervisor.py
+    test_state.py
 ```
 
 ## Suggested build order

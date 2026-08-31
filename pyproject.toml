@@ -1,0 +1,22 @@
+[project]
+name = "001-my-ai-assistant"
+version = "0.1.0"
+description = "Add your description here"
+requires-python = ">=3.12"
+dependencies = []
+
+[tool.ruff]
+line-length = 100
+
+[tool.pytest.ini_options]
+markers = [
+    "live: requires live external dependencies (Ollama, Tavily, Chroma, Langfuse)",
+]
+addopts = "-m 'not live'"
+
+[dependency-groups]
+dev = [
+    "pre-commit>=4.6.2",
+    "pytest>=9.1.1",
+    "ruff>=0.16.5",
+]

@@ -1,7 +1,7 @@
 # CLAUDE.md
 
 Instructions for Claude Code when working in this repo. Full
-architecture/context lives in `REQUIREMENTS.md` — read it before
+architecture/context lives in `project_docs/PROJECT_REQUIREMENTS.md` — read it before
 starting significant work; this file is the condensed "how to behave
 here," not a duplicate of it.
 
@@ -39,7 +39,7 @@ exhaustive correctness.
   any code that reads a secret is written. This rule has no exceptions
   and no "just this once."
 - **`coding_agent`'s file/shell/git tools require the safety boundary
-  from `REQUIREMENTS.md`** (working-directory scope, confirmation gate
+  from `project_docs/PROJECT_REQUIREMENTS.md`** (working-directory scope, confirmation gate
   on state-changing actions, hard denylist) — do not add or expand
   these tools without it in place. This agent is the only one that can
   change real state on the user's machine.
@@ -59,7 +59,7 @@ exhaustive correctness.
   or an invented percentage.** Each agent's confidence signal is tied
   to something that actually happened (RAG relevance score, whether
   `visit_webpage` succeeded, whether `validate_code.py` passed) — see
-  `REQUIREMENTS.md`'s Confidence & validation section. Asking a model
+  `project_docs/PROJECT_REQUIREMENTS.md`'s Confidence & validation section. Asking a model
   to grade its own certainty as "X% confident" is not acceptable here;
   it's uncalibrated and reads as more rigorous than it is.
 - Use typed state (TypedDict or Pydantic) for any LangGraph state
@@ -79,7 +79,7 @@ exhaustive correctness.
 
 ## Models
 
-Task-specific, not one generalist model. See `REQUIREMENTS.md` for the
+Task-specific, not one generalist model. See `project_docs/PROJECT_REQUIREMENTS.md` for the
 current lineup and rationale (coder model for code, small/fast model
 for routing, general model for research/docs, `nomic-embed-text` for
 RAG). Hardware ceiling: Apple M4, 16GB RAM — avoid recommending or
@@ -91,6 +91,14 @@ defaulting to models much above 7-8B for interactive use.
   swapping a hand-rolled piece for a prebuilt library), say so
   explicitly and let the user decide rather than silently taking the
   shortcut.
-- Update `REQUIREMENTS.md` when architecture or priorities actually
+- Update `project_docs/PROJECT_REQUIREMENTS.md` when architecture or priorities actually
   change — keep it as the living source of truth, not just an initial
   planning doc.
+- **Show proposed changes before making them.** Before creating or
+  editing any file (code, config, or otherwise), describe what's about
+  to change — new file contents or a summary of the edit — and wait for
+  confirmation before writing it. Applies from the repo-scaffolding step
+  onward, not just docs.
+- **Commit messages must be relevant, not generic.** Every commit/push
+  includes a message describing what actually changed and why — not a
+  placeholder like "update files."

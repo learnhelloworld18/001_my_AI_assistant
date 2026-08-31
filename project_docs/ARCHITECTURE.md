@@ -1,7 +1,7 @@
 # Architecture Diagram
 
 Full request-flow diagram for the personal local AI assistant. See
-`REQUIREMENTS.md` for the fuller rationale behind each component.
+`PROJECT_REQUIREMENTS.md` for the fuller rationale behind each component.
 
 ```mermaid
 flowchart TD

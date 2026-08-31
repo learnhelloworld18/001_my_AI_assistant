@@ -1,7 +1,41 @@
 # Important Design Considerations
 
 Brief record of what changed from the first proposed architecture, and
-why. See `REQUIREMENTS.md` for the current spec in full.
+why. See `PROJECT_REQUIREMENTS.md` for the current spec in full.
+
+## Test directory structure — mirrors the source tree, not just tiers
+
+- Originally: a flat `tests/unit/` + `tests/live/` split by test tier
+  only. Revised on request: directories mirror the source tree
+  (`test_agents/`, `test_tools/`, `test_rag/`, etc.) — "where's the test
+  for X" now maps directly to "where's X." The unit/live distinction
+  didn't go away, it just moved from folder placement to a `pytest`
+  marker (`@pytest.mark.live`) — a mocked test and its live counterpart
+  for the same module can live in the same file.
+
+## Pre-commit hooks expanded beyond gitleaks + ruff
+
+- Added the official `ruff-pre-commit` (version-pinned, matches the
+  local `ruff` rather than whatever's on `$PATH`), standard
+  `pre-commit-hooks` file hygiene (trailing whitespace, EOF fixer,
+  TOML/large-file/merge-conflict checks), and `mypy` for static type
+  checking — a deliberate addition alongside Pydantic, not a
+  replacement: mypy checks source code type-consistency before
+  anything runs, Pydantic validates actual data shape at runtime
+  (specifically LangGraph state, per the existing typed-state hard
+  rule) — different bugs, different timing, worth having both.
+- **`gitleaks` was actually tested, not just configured and trusted.**
+  Two early test attempts (an `AKIA...EXAMPLE` string, then a
+  `sk-proj-...` OpenAI-format key) both passed silently — a real
+  finding, not a false alarm: gitleaks' default `openai-api-key` rule
+  only matches the *legacy* key format (`sk-` + 20 chars +
+  `T3BlbkFJ` + 20 chars), not the newer `sk-proj-...` project-scoped
+  keys OpenAI now issues by default. Also found that repeated-character
+  filler text (`aaaa...`) fails the rule's entropy check even when the
+  regex shape matches. Verified working end-to-end only once a
+  correctly-patterned, sufficiently-random test secret was used — it
+  was then correctly blocked (`exit code 1`) through the actual
+  `pre-commit run` path, not just the raw `gitleaks` binary.
 
 ## REPL input — `prompt_toolkit` pulled forward from "later" to "now"
 
