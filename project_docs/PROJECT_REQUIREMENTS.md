@@ -212,6 +212,102 @@ actually happened, not the model grading itself:
   LLM call for any of this — every signal already exists as a
   byproduct of the tool call that already happened.
 
+### Where evaluation actually happens
+
+There is no fourth "evaluate" step inside the model. The loop is
+`reason → act → observe → reason`, and what looks like evaluation is
+just the reasoning step running again with the observation now in
+context — the model pattern-completing over everything that has
+happened, not computing a check. Prompting for an explicit evaluation
+phase adds no information the next reasoning step didn't already have.
+
+**The practical consequence:** the model's self-assessment is only as
+good as its ability to notice a problem from the raw observation text.
+It has no privileged access to "did this actually work" beyond what is
+visible there. A tool that fails silently and returns something
+superficially fine produces a context with nothing contradicting
+success — so the model reports success, correctly, given what it can
+see. The step cap doesn't rescue this either: an agent that believes it
+succeeded stops looping, so the cap never binds.
+
+So evaluation is layered, and only one layer is inside the model:
+
+| Layer | Where | Catches | Cost |
+|---|---|---|---|
+| `reason → act → observe → reason` | in-model | anything legible in the observation | free |
+| evidence gate | in-graph, deterministic | silent failures the model cannot see | free |
+| model critic | separate call, opt-in | a committed narrative, sometimes | a model call |
+
+**Layer 1's engineering surface is the observation text, not the
+prompt.** Every tool returns an `Observation` (`tools/observation.py`):
+failure leads with an unmissable `[TOOL FAILED]` marker, success carries
+its numbers (chars extracted, HTTP status, result count, score), and a
+fallback never masquerades as content. `fetched()` routes every claimed
+success through `looks_empty()`, so a 200 response carrying a consent
+wall, a JS shell or 80 characters of "Loading..." becomes an explicit
+failure instead of a plausible-looking answer. No tool may return `""`
+or `"No results found"` alone — both read as a legitimate empty answer.
+A tool that can fail silently is a bug even if it never raises.
+
+**Layer 2 is the gate**, reading `Observation.ok`/`metrics` — the same
+signals as the confidence tiers above, one iteration earlier, deciding
+whether to act again rather than only how to label the result. It lives
+in the graph precisely so it does not depend on the model having noticed
+anything:
+
+| Agent | Evaluate = | On insufficient |
+|---|---|---|
+| `research_agent` | `Observation.ok` from `visit_webpage` — real extracted content, not just snippets | try the next result URL, or refine the query |
+| `docs_agent` | top RAG relevance above threshold | broaden the query once, then answer at the low tier |
+| `coding_agent` | did `validate_code.py` pass | feed the linter error back as the next observation and retry |
+| `general_agent` | n/a — no tools, so nothing to observe | no loop at all |
+
+- `coding_agent` is the one genuine revision loop in the project, and
+  it's unobjectionable precisely because the evaluator is a linter, not
+  a model grading itself. Its failure text is directly actionable as the
+  next observation.
+- Every loop is capped from the moment it's written (`MAX_TOOL_STEPS`;
+  `CRITIC_MAX_REVISIONS` for the critic). **Hitting the cap is not a
+  failure** — the answer goes out tagged low-confidence, which is the
+  honest-labeling behavior this section already wants.
+
+### The optional model critic (`CRITIC_ENABLED`, default off)
+
+A separate node after the specialist, before the answer reaches the
+user. One job, per the one-job-per-node rule — it never writes prose,
+only judges.
+
+- **Off by default.** It adds a model call to every turn, against
+  priority 1. It exists so that cost can be *measured* rather than
+  assumed — which is what this project's whole observability stance
+  argues for. Flip `CRITIC_ENABLED=1`, compare the traces, decide with
+  numbers.
+- **Reuses `SUPERVISOR_MODEL`** (`llama3.2:3b`). That model runs every
+  turn with a 30m `keep_alive`, so it is always resident; any other
+  model would add Ollama's 2-5s cold-load penalty to the exact latency
+  the flag exists to measure.
+- **It is given the tool observations, not just the answer text.** A
+  model grading prose against nothing is the uncalibrated self-report
+  this section rejects. Given the evidence, it answers a tractable
+  question instead: *is this answer supported by what the tools
+  actually returned?*
+- **It shares layer 1's blind spot, and that limit is real.** Reading
+  the same observation text, the critic has no better access to whether
+  a tool genuinely worked — a silent failure fools it exactly as it
+  fools the agent. Its only real edge is a fresh context, without the
+  momentum of the agent's own prior reasoning. That is a reason to keep
+  it off by default, and a reason the observation contract matters more
+  than the critic does.
+- **Structured output, binary plus reason** — `Verdict(supported: bool,
+  issue: str | None)`, not a score. Same false-precision argument as the
+  tiers.
+- **One revision, then stop.** A second failure means the evidence is
+  weak, not that the wording needs another attempt — answer at the low
+  tier.
+- **Its own Langfuse span**, so `/stats` can report critic latency and
+  revision rate. A flag you can't measure would defeat the point of
+  having it.
+
 **Updating ingested content is doable and logically correct — with one
 real requirement**: naive re-ingestion (just adding new embeddings) is
 *not* enough on its own, because it would leave old chunks from a
@@ -329,6 +425,9 @@ implicit.
 
 - No strict answer-format evaluation/revision loop — that machinery
   exists only to satisfy exact-match grading, which doesn't apply here.
+  The `evaluate` step in the agent loop is a different thing: it is
+  deterministic and free (see Confidence & validation). The optional
+  model critic is the one exception, and ships off by default.
 - Low tool-step caps (2-3, not 8+) — long tool-call chains feel broken
   in an interactive assistant.
 - Supervisor routing decisions should be cheap/fast, not deep reasoning

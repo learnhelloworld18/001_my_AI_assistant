@@ -52,9 +52,40 @@ exhaustive correctness.
 - Every agentic loop (tool-calling, supervisor routing) needs an
   explicit step/iteration cap from the moment it's written, not added
   later after it misbehaves.
-- No exact-match-style evaluate/revision loop. That pattern exists to
-  satisfy strict grading and doesn't belong in this project — it adds
-  latency for no benefit here.
+- No exact-match-style answer-format grading. That machinery exists to
+  satisfy strict benchmarks and doesn't belong here.
+- **The agent loop is `reason → act → observe → reason`. There is no
+  fourth "evaluate" step inside the model** — evaluation *is* the
+  reasoning step running again with the observation in context. Never
+  prompt for an explicit evaluation phase; it produces text that looks
+  like scrutiny while adding no information the next reasoning step
+  didn't already have.
+- **Therefore the observation text is the engineering surface.** The
+  model's self-assessment is bounded by what's legible in it — a tool
+  that fails quietly and returns something plausible leaves nothing to
+  notice, and the step cap won't save you, because an agent that
+  believes it succeeded stops looping. **Every tool returns an
+  `Observation` (`tools/observation.py`), never a bare string.** Failure
+  is explicit, success carries its numbers, and a fallback must never
+  masquerade as content. A tool that can fail silently is a bug even if
+  it never raises.
+- **The evidence gate is in the graph, not the model.** Deterministic,
+  reading `Observation.ok`/`metrics` — did `visit_webpage` return real
+  content, is the RAG score above threshold, did `validate_code.py`
+  pass. It's what catches the failures the model can't see, so it must
+  never depend on the model having noticed anything. Exhausting the step
+  cap is not an error: answer anyway at the low confidence tier.
+- **The model critic is opt-in and off by default** (`CRITIC_ENABLED`
+  in `config.py`). It exists to *measure* what a per-turn critique
+  costs rather than assume it — the one place this project spends a
+  model call against priority 1, and only with the numbers to justify
+  it. Capped at `CRITIC_MAX_REVISIONS` (1). It must be given the tool
+  observations, not just the answer text: a model grading prose with no
+  ground truth is the same uncalibrated thing the confidence rule below
+  rejects. And it shares the loop's blind spot — reading the same
+  observation text, it has no better access to whether a tool really
+  worked. Its only real edge is a fresh context without the agent's
+  committed narrative.
 - **Confidence tags are evidence-based, never a raw model self-report
   or an invented percentage.** Each agent's confidence signal is tied
   to something that actually happened (RAG relevance score, whether
@@ -102,6 +133,11 @@ defaulting to models much above 7-8B for interactive use.
 - **Commit messages must be relevant, not generic.** Every commit/push
   includes a message describing what actually changed and why — not a
   placeholder like "update files."
-- **Keep explanations and code comments brief.** Default to short and
-  simple; expand only when asked for detail. A comment states what the
-  line is for and any non-obvious gotcha — not the full rationale.
+- **Comment new code as you write it.** This is a learning project — every
+  new module, class, and non-obvious block gets a comment explaining what
+  it does and why it's built that way. Don't leave code bare and add
+  comments in a later pass.
+- **But keep them brief.** Short and simple; expand only when asked for
+  detail. A comment states what the line is for and any non-obvious
+  gotcha — not the full rationale. Rationale that needs paragraphs belongs
+  in `project_docs/DESIGN_DECISIONS.md`, not inline.

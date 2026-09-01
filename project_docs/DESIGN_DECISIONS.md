@@ -168,6 +168,58 @@ why. See `PROJECT_REQUIREMENTS.md` for the current spec in full.
   `validate_code.py` passed, `general_agent` → always honestly labeled
   ungrounded, since it has no tools to check against.
 
+## Evaluation reinstated — as a loop step, and as a measurable flag
+
+Reverses part of the early "no evaluate/revision loop" decision above.
+Two separate changes, for different reasons:
+
+- **A first pass framed this as a fourth `evaluate` step the agent
+  performs. That was wrong, and correcting it is the useful part.**
+  Inside the model there is no separate evaluation function: the loop is
+  `reason → act → observe → reason`, and what reads as evaluation is the
+  reasoning step running again with the observation now in context —
+  next-token prediction over a richer history, not a check being
+  computed. (That it tends to catch mismatches at all is a product of
+  post-training, not of an architectural component.) Prompting for an
+  explicit "now evaluate" phase would produce text that *looks* like
+  scrutiny while adding nothing the next reasoning step didn't already
+  have.
+- **So the leverage moved from prompting to tool return values.** The
+  model's self-assessment is bounded by what is legible in the
+  observation text; it has no privileged access to "did this work." A
+  tool that fails quietly and returns something plausible leaves nothing
+  to notice, and the model then reports success *correctly*, given its
+  context. The step cap doesn't help — an agent that believes it
+  succeeded stops looping, so the cap never binds. Hence
+  `tools/observation.py`: loud failure markers, numbers on every result,
+  and `fetched()` routing claimed successes through `looks_empty()` so a
+  200-with-a-consent-wall becomes an explicit failure. This is the same
+  reasoning that killed the prompt-only "must call `visit_webpage`" rule
+  one section above, applied to control flow instead of labeling.
+- **The deterministic gate belongs in the graph for the same reason.**
+  It is not "the agent evaluating itself" — it is the graph checking
+  facts the model cannot see, which is exactly why it must not depend on
+  the model having noticed them.
+- **A model critic, off by default behind `CRITIC_ENABLED`.** This one
+  genuinely does contradict priority 1, and was adopted anyway on an
+  explicit rationale: *the latency claim should be measured, not
+  assumed*. The project already argues this about everything else —
+  "since this project is optimizing for responsiveness, measure it,
+  don't just assume it" — and the flag makes the A/B a one-variable
+  change with Langfuse spans on both sides. If the numbers say it's
+  expensive, that's a finding, and the default stays off.
+- Two constraints keep the critic from becoming the thing the original
+  ban was right about: it reuses `SUPERVISOR_MODEL` (always resident, so
+  the measurement isn't polluted by a 2-5s model swap), and it is handed
+  the tool observations rather than only the answer text — "is this
+  supported by the evidence" is answerable, "is this correct" is not.
+- **Stated plainly so the measurement isn't over-read:** the critic
+  shares the agent's blind spot. Reading the same observation text, it
+  cannot detect a silent tool failure any better than the agent did. Its
+  edge is only a fresh context, free of the agent's committed narrative.
+  If the latency numbers come back bad, the observation contract is
+  where the real defect-catching lives anyway.
+
 ## Observability — Langfuse pulled forward from "later upgrade" to "from the start"
 
 - Original plan: hand-roll a SQLite + timing-wrapper system first (v1),
