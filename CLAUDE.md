@@ -102,3 +102,6 @@ defaulting to models much above 7-8B for interactive use.
 - **Commit messages must be relevant, not generic.** Every commit/push
   includes a message describing what actually changed and why — not a
   placeholder like "update files."
+- **Keep explanations and code comments brief.** Default to short and
+  simple; expand only when asked for detail. A comment states what the
+  line is for and any non-obvious gotcha — not the full rationale.

@@ -477,28 +477,31 @@ immediately rather than build a throwaway text-only version first):
   .gitignore                   # .env, __pycache__, .venv, etc — from commit #1
   .pre-commit-config.yaml       # gitleaks, ruff-check + ruff-format, file hygiene, mypy
   docker-compose.langfuse.yml    # self-hosted Langfuse (web app + Postgres)
-  pyproject.toml                  # uv-managed deps, ruff config, pytest markers,
-                                    # [project.scripts] entry for `uv tool install .`
-  main.py                          # REPL entry point (real main() function, not the
-                                    # uv-init stub) + meta-commands + error handling
-  supervisor.py                     # langgraph-supervisor setup: agents + routing
-  agents/
-    coding_agent.py
-    research_agent.py
-    docs_agent.py
-    general_agent.py
-  tools/                              # LangChain tools, built from scratch
-    safety.py                          # working-dir scope, confirmation gate, denylist
-    validate_code.py                    # ruff/sqlfluff/terraform validate/dbt parse dispatch
-  rag/
-    ingest.py                            # chunk + embed + store personal notes (pypdf/python-docx/md)
-    query.py                              # retrieve + generate
-    memory.py                              # session summarization + conversation_memory
-    manifest.db                             # SQLite: source path -> content hash, for idempotent re-ingest
-  observability/
-    langfuse_client.py                       # CallbackHandler wiring + custom score/event calls
-    stats.py                                  # /stats: pulls a text summary from Langfuse's API
-  state.py                                     # shared graph state schema
+  pyproject.toml                  # uv deps, ruff/pytest config, [project.scripts],
+                                    # hatchling build pointing at src/myassistant
+  src/myassistant/                 # src layout: everything namespaced under one package,
+                                    # so `uv tool install .` doesn't put generic names
+                                    # like `config`/`main` into site-packages
+    __init__.py
+    config.py                        # paths (ASSISTANT_HOME vs PROJECT_ROOT), models, keys
+    main.py                           # REPL entry point + meta-commands + error handling
+    supervisor.py                      # langgraph-supervisor setup: agents + routing
+    state.py                            # shared graph state schema
+    agents/
+      coding_agent.py
+      research_agent.py
+      docs_agent.py
+      general_agent.py
+    tools/                                # LangChain tools, built from scratch
+      safety.py                            # working-dir scope, confirmation gate, denylist
+      validate_code.py                      # ruff/sqlfluff/terraform validate/dbt parse dispatch
+    rag/
+      ingest.py                              # chunk + embed + store notes (pypdf/python-docx/md)
+      query.py                                # retrieve + generate
+      memory.py                                # session summarization + conversation_memory
+    observability/
+      langfuse_client.py                       # CallbackHandler wiring + score/event calls
+      stats.py                                  # /stats: text summary from Langfuse's API
   tests/                                        # mirrors the source tree - "where's the test for X" = "where's X"
     test_agents/
       test_coding_agent.py
@@ -562,11 +565,13 @@ immediately rather than build a throwaway text-only version first):
    relevance, confidence tier) as each of those features gets built.
 9. `observability/stats.py` — `/stats` pulling a live text summary from
    Langfuse's API.
-10. Global CLI install — move the global-persistent state (Chroma
-    store, `rag/manifest.db`, `.env`, Langfuse config) to `~/.myassistant/`,
-    add the `[project.scripts]` entry, and verify `uv tool install .`
-    launches correctly from an arbitrary directory with `coding_agent`
-    correctly scoped to that directory's `cwd` (see Global installation
-    & scope). Do this last, once every component that touches
-    global-persistent paths already exists — moving the paths earlier
-    would mean revisiting every prior step.
+10. ~~Global CLI install~~ — **done early, during step 1.** The original
+    plan deferred this to last, reasoning that moving paths late avoids
+    revisiting prior steps. That inverted: defining `ASSISTANT_HOME` and
+    `PROJECT_ROOT` correctly in `config.py` up front means never
+    revisiting them, and adopting the `src/` package layout before there
+    were files to move cost two files instead of twenty. Already
+    verified: `uv tool install .` puts `myassistant` on `$PATH`, and
+    `PROJECT_ROOT` correctly follows the launch directory. What remains
+    for later steps is only pointing Chroma and the RAG manifest at
+    `ASSISTANT_HOME` when those components get built (step 4).

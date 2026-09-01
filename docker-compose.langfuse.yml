@@ -1,0 +1,57 @@
+# Self-hosted Langfuse - web app + Postgres only.
+#
+# Deliberately pinned to v2. v3 additionally requires ClickHouse, Redis and
+# MinIO (~4-6GB resident), which does not leave room for Ollama's models on a
+# 16GB machine - and this project's first priority is responsiveness.
+#
+# No secrets are hardcoded here. Every credential is read from .env (which is
+# gitignored), so this file is safe to commit. `${VAR:?message}` makes compose
+# fail loudly with that message rather than silently starting up misconfigured.
+#
+#   Start:  docker compose -f docker-compose.langfuse.yml up -d
+#   Stop:   docker compose -f docker-compose.langfuse.yml down
+#   UI:     http://localhost:3000  (create an account, then a project, to get
+#           the LANGFUSE_PUBLIC_KEY / LANGFUSE_SECRET_KEY pair for .env)
+
+services:
+  langfuse-db:
+    image: postgres:16-alpine
+    restart: unless-stopped
+    # Guardrail, not a saving. Docker's VM ceiling is ~7.5GB and allocates on
+    # demand, so nothing is reserved - this just stops a runaway container from
+    # ever climbing toward that ceiling and squeezing Ollama's models out of
+    # RAM. Set generously above real usage (~32MB): hitting the limit means an
+    # OOM kill, which is worse than the memory it would save.
+    mem_limit: 512m
+    environment:
+      POSTGRES_USER: langfuse
+      POSTGRES_PASSWORD: ${LANGFUSE_DB_PASSWORD:?set LANGFUSE_DB_PASSWORD in .env}
+      POSTGRES_DB: langfuse
+    volumes:
+      - langfuse_pgdata:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U langfuse"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+
+  langfuse-server:
+    image: langfuse/langfuse:2
+    restart: unless-stopped
+    # See the note on langfuse-db. Real usage is ~140MB; the headroom covers
+    # startup migrations and trace-ingestion bursts.
+    mem_limit: 1g
+    depends_on:
+      langfuse-db:
+        condition: service_healthy
+    ports:
+      - "3000:3000"
+    environment:
+      DATABASE_URL: postgresql://langfuse:${LANGFUSE_DB_PASSWORD:?set LANGFUSE_DB_PASSWORD in .env}@langfuse-db:5432/langfuse
+      NEXTAUTH_URL: http://localhost:3000
+      NEXTAUTH_SECRET: ${NEXTAUTH_SECRET:?set NEXTAUTH_SECRET in .env}
+      SALT: ${LANGFUSE_SALT:?set LANGFUSE_SALT in .env}
+      TELEMETRY_ENABLED: "false"
+
+volumes:
+  langfuse_pgdata:

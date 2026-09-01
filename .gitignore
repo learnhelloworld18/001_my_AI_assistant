@@ -1,6 +1,20 @@
+# Secrets. `.env` alone did not cover sibling files like `.env.bak` or
+# `.env.local`, so match the whole family and re-include only the template.
 .env
+.env.*
+!.env.example
+
 __pycache__/
 .venv/
 *.pyc
 .pytest_cache/
+.ruff_cache/
+.mypy_cache/
+.DS_Store
+
+# The RAG manifest lives in ASSISTANT_HOME (~/.myassistant/), not in the repo -
+# kept here in case an older local copy is still sitting in rag/.
 rag/manifest.db
+
+# Personal notes, not part of the project docs.
+project_docs/project_src_myassistant_structure.md

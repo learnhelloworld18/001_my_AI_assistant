@@ -197,6 +197,109 @@ why. See `PROJECT_REQUIREMENTS.md` for the current spec in full.
   became its own dedicated file (`rag/manifest.db`) instead of sharing
   a database with the now-removed observability SQLite store.
 
+## `src/` package layout — flat modules would have broken the global install
+
+- The spec's module structure put `main.py`, `config.py`, `state.py`,
+  `agents/`, `tools/` at the repo root. That works when running
+  `python main.py`, but `uv tool install .` would then install `config`,
+  `main`, `state`, `agents` and `tools` as top-level names in site-packages —
+  generic enough to collide with other packages, and `[project.scripts]`
+  needs a real importable package path anyway.
+- Moved to `src/myassistant/`, everything namespaced under one package, with
+  `myassistant = "myassistant.main:main"` as the entry point.
+- `src/` specifically (rather than `myassistant/` at the repo root) so tests
+  import the *installed* package rather than the adjacent source directory —
+  otherwise the suite can pass against code that isn't actually installable.
+  Consequence: `pythonpath = ["."]` came back out of the pytest config.
+- Done at step 1, when it cost two files to move. Deferring it to step 10 as
+  originally sequenced would have meant rewriting every import in the project.
+
+## `config.py` — exists for safety correctness, not for tidiness
+
+Not in the original module structure; added when the global-install work made
+"which directory am I allowed to write to?" a question with two possible
+answers. Worth stating plainly, because the file looks like a settings bucket
+and its real job is narrower than that.
+
+- **The bug it prevents.** `PROJECT_ROOT` is the fence around `coding_agent` —
+  the only directory its file/shell/git tools may touch. If each module called
+  `Path.cwd()` at the moment it needed it, that fence would move whenever
+  anything changed directory mid-session: a build script, a test using
+  `monkeypatch.chdir`, a `cd` inside a shell command. The agent would then
+  write outside the directory you launched in **and the safety check would
+  still report "passed,"** because it would be comparing against the new,
+  wrong directory. Capturing `Path.cwd()` exactly once at import makes that
+  failure unrepresentable rather than merely unlikely.
+- **The two "homes" must not be conflated.** `ASSISTANT_HOME`
+  (`~/.myassistant`) is fixed across launches and holds the knowledge base;
+  `PROJECT_ROOT` changes every launch. If the knowledge base were
+  `cwd`-relative, ingested notes would scatter across every directory the tool
+  was ever run from — the failure mode the "two kinds of state" requirement
+  was written to prevent.
+- **Load ordering.** `load_dotenv()` has to run before any module reads a key.
+  A single module that executes first guarantees that; scattered `load_dotenv`
+  calls do not.
+- **Model names live here, not in `.env`** — a deliberate split by *kind of
+  setting*, not by convenience. Credentials go in `.env` (gitignored). Model
+  names, step caps and `keep_alive` values are non-secret and part of the
+  project's reproducible behavior, so they belong in version control, in the
+  same category as `line-length = 100`. Putting them in `.env` would mean a
+  fresh clone starts with nothing configured and the values never appear in
+  code review. They stay overridable via environment variable, and
+  `.env.example` lists them commented-out so they are discoverable without
+  reading source.
+- **Rejected: a `[tool.myassistant]` section in `pyproject.toml`.** Reads
+  nicely, but once `uv tool install .` puts this on `$PATH`, the installed CLI
+  cannot reliably read its own `pyproject.toml` at runtime — it would break
+  the global-install step for no real gain.
+- **Deviation from the documented build order**, made deliberately: the spec
+  sequenced "move global-persistent state to `~/.myassistant/`" as step 10,
+  reasoning that moving paths earlier means revisiting prior steps. That
+  reasoning inverts — defining the paths correctly in step 1 means never
+  revisiting them, and leaves step 10 as packaging only. Consequence:
+  `manifest.db` now lives in `ASSISTANT_HOME`, not `rag/`, so the spec's
+  module structure and the stale `rag/manifest.db` line in `.gitignore` both
+  need updating.
+
+## LangChain pinned to 0.3.x — forced by the Langfuse v2 SDK, found by testing imports
+
+- The spec named libraries but no versions. Left unpinned, `uv` resolved to
+  LangChain 1.x / LangGraph 1.x — and **Langfuse v2's LangChain integration
+  does not work on 1.x**: it imports `langchain.callbacks.base`, a module
+  1.x removed, so `from langfuse.callback import CallbackHandler` raises
+  `ModuleNotFoundError`. Observability would have been dead on arrival.
+- Caught by running an import smoke test immediately after `uv sync` rather
+  than assuming resolution implies compatibility — the same class of bug as
+  the GAIA project's `ddgs`/`duckduckgo-search` mismatch, and the reason the
+  live-test tier exists.
+- The two constraints are linked and neither is free: Langfuse v2 was pinned
+  because the v3 server needs ClickHouse + Redis + MinIO (~4-6GB), which does
+  not fit in 16GB alongside Ollama. Holding that pin forces LangChain 0.3.x.
+  Resolved set: `langchain 0.3.30`, `langgraph 0.6.11`,
+  `langgraph-supervisor 0.0.29`, `langfuse 2.60.10`.
+- Accepted tradeoff: 0.3.x is a maintenance branch rather than the current
+  line. It matches what this project's spec and the prior GAIA build were
+  written against, so those patterns transfer directly — but this is a
+  deliberate deferral, not a permanent choice. Upper bounds in
+  `pyproject.toml` carry a comment explaining *why*, so a future version bump
+  doesn't silently re-break tracing.
+
+## Models — lighter set than the spec's first-listed option, chosen on memory not quality
+
+- The spec listed alternates for two roles without picking. Chose
+  `qwen2.5-coder:7b` (coding), `qwen2.5:3b-instruct` (research/docs),
+  `llama3.2:3b` (supervisor), `nomic-embed-text` — ~8.9GB.
+- The deciding constraint was **concurrent residency, not inference speed**.
+  A single 7B model runs fine on an M4; the problem is that a chained query
+  (supervisor → specialist → specialist) touches three models, and two 7Bs
+  plus macOS plus Docker exceeds 16GB — causing eviction and a 2-5s cold-load
+  penalty *per agent hop*, directly against the responsiveness priority.
+- Coding stays at 7B because it is the primary use case and most sensitive to
+  a quality drop. Research/docs took the 3B cut because that agent mostly
+  summarizes retrieved text rather than reasoning from scratch — the cheapest
+  place to lose capability. Supervisor uses `llama3.2:3b` not `:1b`; 1B is
+  unreliable at the structured handoffs `langgraph-supervisor` depends on.
+
 ## Global CLI install — launch-anywhere modeled on Claude Code, not in the original design
 
 - Original design assumed the assistant ran from inside its own repo
