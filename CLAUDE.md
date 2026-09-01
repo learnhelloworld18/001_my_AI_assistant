@@ -122,6 +122,45 @@ for routing, general model for research/docs, `nomic-embed-text` for
 RAG). Hardware ceiling: Apple M4, 16GB RAM — avoid recommending or
 defaulting to models much above 7-8B for interactive use.
 
+## Explaining things
+
+**If the answer is a flow — something moving through steps — draw the
+flow first, then explain the parts.** Prose describing a pipeline makes
+the reader rebuild the diagram in their head. Show the shape, then say
+why each box is there. This is a learning project; the picture is the
+teaching.
+
+Applies to: "what is X", "who/what does X", "how does X work", "what
+happens when I…", anything with a sequence, a branch, or a handoff. Use
+a plain ASCII flow with `↓` and `→`, real function and type names from
+the code, and a branch at the end when the outcome differs. Keep it
+narrow enough to read in a terminal.
+
+The example that prompted this rule — "what is the critic?":
+
+```
+you ask something
+   ↓
+research_agent  → calls web_search, visit_webpage
+                → produces an answer + a list of Observations
+   ↓
+critic          → gets three things:
+                    1. your question
+                    2. the agent's draft answer
+                    3. render_evidence(observations)  ← the actual tool output
+                → returns Verdict(supported=True/False, issue="...")
+   ↓
+if supported  → you see the answer
+if not        → one revision (CRITIC_MAX_REVISIONS), then answer anyway at LOW
+```
+
+What makes it work: concrete names over abstractions (`render_evidence`,
+not "the evidence"), the inputs enumerated where the reader would ask
+"but what does it actually see", and both branches shown so the failure
+path isn't a mystery. Follow it with the short *why* — why it's a
+separate node, why binary and not a score, what its limits are — but
+only after the shape is on the page.
+
 ## When proposing changes
 
 - If a design decision trades learning value for convenience (e.g.
