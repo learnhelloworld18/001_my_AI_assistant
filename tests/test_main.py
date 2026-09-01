@@ -36,14 +36,27 @@ def test_unknown_command_does_not_crash(session, capsys):
 
 def test_plain_text_is_not_treated_as_a_command(session):
     main.run_turn("what is a CTE", session)
-    assert session.turns[0][0] == "what is a CTE"
+    assert session.history[0][0] == "what is a CTE"
 
 
 def test_clear_empties_history(session):
     main.run_turn("hello", session)
-    assert session.turns
+    assert session.history
     main.run_turn("/clear", session)
-    assert not session.turns
+    assert not session.history
+
+
+def test_clear_keeps_session_identity(session):
+    """/clear resets the conversation, not the session itself."""
+    sid, started = session.session_id, session.started_at
+    main.run_turn("hello", session)
+    main.run_turn("/clear", session)
+    assert session.session_id == sid
+    assert session.started_at == started
+
+
+def test_each_session_gets_its_own_id():
+    assert main.Session().session_id != main.Session().session_id
 
 
 # --- completer ---
