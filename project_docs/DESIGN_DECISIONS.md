@@ -239,6 +239,12 @@ Two separate changes, for different reasons:
 - Normalising to 0-1 is not tidiness: small models answer "90" where 0.9
   was asked for, sometimes within a single run, and a mixed series is
   unanalysable.
+- **Wiring constraint for step 2:** the number must come from a field on
+  the structured output the agent already produces — never a second
+  model call. A separate "now rate your confidence" round trip would
+  cost full latency to collect a number the experiment exists precisely
+  because we don't trust yet. If it can't be had as a field on the
+  existing call, it isn't worth having.
 
 ## Observability — Langfuse pulled forward from "later upgrade" to "from the start"
 
