@@ -12,12 +12,14 @@ flowchart TD
         Ingest["/ingest path [--collection]<br/>run rag/ingest.py"]
         Stats["/stats<br/>query Langfuse API, print summary"]
         Clear["/clear<br/>reset in-memory session state"]
+        Remember["/remember [text]<br/>summarize-now or save verbatim"]
     end
 
     MetaCheck -->|"/help"| Help
     MetaCheck -->|"/ingest path [--collection]"| Ingest
     MetaCheck -->|"/stats"| Stats
     MetaCheck -->|"/clear"| Clear
+    MetaCheck -->|"/remember [text]"| Remember
     MetaCheck -->|"/exit"| SessionEnd
     MetaCheck -->|"anything else"| Supervisor["Supervisor<br/>langgraph-supervisor · llama3.2"]
 
@@ -65,6 +67,7 @@ flowchart TD
     SearchNotes --> Embedding
     SearchResume --> Embedding
     Summarize --> Embedding
+    Remember --> Embedding
 
     subgraph VectorDB ["Chroma - local vector DB"]
         TechNotes[("tech_notes")]
@@ -119,7 +122,7 @@ flowchart TD
     classDef stop fill:#fecaca,stroke:#dc2626,color:#7f1d1d
 
     class User,MetaCheck,ConfirmCheck,Reply,Stream,SessionEnd,ProcessExit flow
-    class Help,Ingest,Stats,Clear meta
+    class Help,Ingest,Stats,Clear,Remember meta
     class Supervisor orchestration
     class Coding,Research,Docs,General agent
     class Validate,Safety,FS,Tavily,Visit,SearchNotes,SearchResume tool
@@ -142,9 +145,9 @@ four specialist agents; each agent's tools are scoped to its own job.
 even needs confirmation** — read-only actions proceed straight through,
 state-changing ones stop for explicit user approval, and a decline
 aborts cleanly rather than silently doing nothing. Every RAG operation
-(ingest, both search tools, session-summary storage) passes through the
-same embedding step before touching Chroma — there's no direct
-tool-to-vector-DB edge anywhere. Every agent is instrumented by the
+(ingest, both search tools, session-summary storage, `/remember`)
+passes through the same embedding step before touching Chroma —
+there's no direct tool-to-vector-DB edge anywhere. Every agent is instrumented by the
 same Langfuse callback handler regardless of which one ran;
 meta-commands each have a real destination rather than one generic
 handler.

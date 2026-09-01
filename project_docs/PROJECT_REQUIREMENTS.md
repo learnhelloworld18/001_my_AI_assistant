@@ -28,7 +28,10 @@ over accuracy.** This is not a graded/benchmarked system.
 
 ## Interaction model
 
-- Entry point: `main.py`, run from the terminal.
+- Entry point: `main.py`, run from the terminal — **installed globally**
+  (`uv tool install .`, backed by its own isolated venv), launchable
+  from any directory on the Mac, not just this repo. See Global
+  installation & scope below for what that means for state.
 - Conversational REPL, similar in feel to Claude Code — fast, streaming
   responses, iterative back-and-forth.
 - Responses should feel near-instant for simple queries (small models,
@@ -36,8 +39,10 @@ over accuracy.** This is not a graded/benchmarked system.
 - **Meta-commands**: not everything routes through an agent. Support
   slash-style commands handled directly by `main.py` — e.g. `/help`,
   `/exit`, `/stats` (recent observability summary), `/ingest <path>`
-  (trigger RAG ingestion), `/clear` (reset session state). These bypass
-  the supervisor entirely for speed and predictability.
+  (trigger RAG ingestion), `/clear` (reset session state), `/remember
+  [text]` (save to long-term memory now, on request — see Explicit
+  memory saves below). These bypass the supervisor entirely for speed
+  and predictability.
 - **Autocomplete for meta-commands**: typing `/` shows a dropdown of
   available commands (narrows as you type — `/i` → `/ingest`), and the
   `<path>` argument to `/ingest` gets filesystem-path completion, same
@@ -53,6 +58,35 @@ over accuracy.** This is not a graded/benchmarked system.
   message, and logged (see Observability) — the REPL must never crash
   and exit on a single failed turn. The loop always returns to the
   prompt.
+
+## Global installation & scope — two kinds of state, not one
+
+Launching from any directory (like Claude Code) means being explicit
+about what stays constant across launches and what changes per launch —
+conflating the two would either fragment your knowledge base across
+every directory you ever run the tool from, or let `coding_agent` touch
+files outside wherever you actually meant to work.
+
+- **Global, persistent** (lives in a fixed location, e.g.
+  `~/.myassistant/`, **not** `cwd`-relative): the Chroma vector store
+  (`tech_notes`, `resume_interview`, `conversation_memory`),
+  `rag/manifest.db`, `.env` secrets, Langfuse config. This is the whole
+  point of a personal knowledge base — it has to persist regardless of
+  which directory you happened to launch from.
+- **Per-launch, `cwd`-scoped**: `coding_agent`'s working-directory
+  boundary (the existing Safety boundaries requirement) is
+  `Path.cwd()` **at launch time** — this is the actual mechanism for
+  "access the contents of that repo." Not a new capability, just making
+  explicit that "project root" in the Safety boundaries section means
+  wherever you launched from, not the assistant's own install location.
+- Other agents (`research_agent`, `docs_agent`, `general_agent`) that
+  need repo content route through `coding_agent`'s already-scoped tools
+  via supervisor chaining, rather than each agent growing its own
+  separate file-access logic — one safety boundary, not several.
+- **Installation**: `uv tool install .` registers a real executable on
+  `$PATH`, backed by its own isolated venv — needs a `[project.scripts]`
+  entry in `pyproject.toml` and a proper `main()` function (currently
+  just `uv init`'s placeholder stub).
 
 ## Architecture: multi-agent, supervisor pattern
 
@@ -139,6 +173,18 @@ path and metadata):
   conflicting resume points into retrieval right next to the current
   ones.
 
+**Explicit memory saves (`/remember [text]`)**:
+- On-demand counterpart to the automatic end-of-session summarization
+  above — the user shouldn't have to wait for `/exit` to persist
+  something worth keeping.
+- `/remember` with no arguments: summarize the conversation so far
+  (same cheap fast model as end-of-session) and store it.
+- `/remember <text>`: store the given text verbatim, no
+  summarization step — the user has already distilled it themselves.
+- Both forms always target `conversation_memory` only — never
+  `tech_notes` or `resume_interview`, which have their own deliberate
+  ingestion path via `/ingest`.
+
 ## Confidence & validation (evidence-based, not model self-report)
 
 No agent gets a full correctness-grading loop (deliberately dropped —
@@ -219,8 +265,10 @@ machine (files, git history, shell commands) — it needs guardrails from
 first implementation, not bolted on after something goes wrong.
 
 - **Working-directory scope**: file/shell/git tools operate only within
-  an explicitly configured project root. No arbitrary absolute paths,
-  no traversal outside that root.
+  an explicitly configured project root — concretely, `Path.cwd()` at
+  launch time (see Global installation & scope), not the assistant's
+  own install location. No arbitrary absolute paths, no traversal
+  outside that root.
 - **Confirmation gate**: any state-changing action (file write/delete,
   `git commit`/`push`/`reset`, any shell command that isn't read-only)
   must be shown to the user and explicitly confirmed in the REPL before
@@ -429,8 +477,10 @@ immediately rather than build a throwaway text-only version first):
   .gitignore                   # .env, __pycache__, .venv, etc — from commit #1
   .pre-commit-config.yaml       # gitleaks, ruff-check + ruff-format, file hygiene, mypy
   docker-compose.langfuse.yml    # self-hosted Langfuse (web app + Postgres)
-  pyproject.toml                  # uv-managed deps, ruff config, pytest markers
-  main.py                          # REPL entry point + meta-commands + error handling
+  pyproject.toml                  # uv-managed deps, ruff config, pytest markers,
+                                    # [project.scripts] entry for `uv tool install .`
+  main.py                          # REPL entry point (real main() function, not the
+                                    # uv-init stub) + meta-commands + error handling
   supervisor.py                     # langgraph-supervisor setup: agents + routing
   agents/
     coding_agent.py
@@ -501,7 +551,9 @@ immediately rather than build a throwaway text-only version first):
 4. RAG pipeline (`ingest.py` + `query.py`) + `docs_agent`.
 5. `general_agent` for fast low-stakes chat/drafts.
 6. `rag/memory.py` — session summarization + `conversation_memory`
-   collection, wired into session start/end in `main.py`.
+   collection, wired into session start/end in `main.py`; add the
+   `/remember [text]` meta-command (on-demand save, same collection)
+   as part of the same step, since it shares the summarization path.
 7. Tune `langgraph-supervisor`'s routing (prompt/model choice) for
    ambiguous queries once all four agents exist.
 8. `observability/langfuse_client.py` — attach `CallbackHandler` to the
@@ -510,3 +562,11 @@ immediately rather than build a throwaway text-only version first):
    relevance, confidence tier) as each of those features gets built.
 9. `observability/stats.py` — `/stats` pulling a live text summary from
    Langfuse's API.
+10. Global CLI install — move the global-persistent state (Chroma
+    store, `rag/manifest.db`, `.env`, Langfuse config) to `~/.myassistant/`,
+    add the `[project.scripts]` entry, and verify `uv tool install .`
+    launches correctly from an arbitrary directory with `coding_agent`
+    correctly scoped to that directory's `cwd` (see Global installation
+    & scope). Do this last, once every component that touches
+    global-persistent paths already exists — moving the paths earlier
+    would mean revisiting every prior step.

@@ -197,6 +197,51 @@ why. See `PROJECT_REQUIREMENTS.md` for the current spec in full.
   became its own dedicated file (`rag/manifest.db`) instead of sharing
   a database with the now-removed observability SQLite store.
 
+## Global CLI install — launch-anywhere modeled on Claude Code, not in the original design
+
+- Original design assumed the assistant ran from inside its own repo
+  directory (`python main.py` or `uv run main.py`), with no distinction
+  between the assistant's install location and whatever directory the
+  user actually wanted `coding_agent` to work in.
+- Prompted by wanting Claude-Code-like ergonomics: launch from any
+  directory on the machine and have it work there, including
+  `coding_agent` operating on that directory's contents.
+- Resolved by splitting state into two explicit tiers rather than
+  adding a special case: **global/persistent** (Chroma store,
+  `rag/manifest.db`, `.env`, Langfuse config — moves to
+  `~/.myassistant/`, independent of launch location) vs.
+  **per-launch/`cwd`-scoped** (`coding_agent`'s existing working-directory
+  safety boundary, now explicitly defined as `Path.cwd()` at launch
+  time). This wasn't a new capability for `coding_agent` — the safety
+  boundary already existed — just a correction that "project root" in
+  that boundary means the launch directory, not the assistant's own
+  repo.
+- Other agents (`research_agent`, `docs_agent`, `general_agent`) don't
+  get their own separate file-access logic for repo content — they
+  route through `coding_agent`'s already-scoped tools via supervisor
+  chaining, keeping one safety boundary instead of several.
+- Installation mechanism: `uv tool install .`, which needs a
+  `[project.scripts]` entry in `pyproject.toml` and a real `main()`
+  function (`main.py` currently is still `uv init`'s placeholder stub).
+  Sequenced last in the build order (step 10) — moving global-persistent
+  paths only makes sense once every component that touches them already
+  exists, otherwise every prior step would need revisiting.
+
+## `/remember` — on-demand memory save, added alongside the launch-anywhere change
+
+- The original `conversation_memory` design only had one write path:
+  automatic summarization at `/exit` or process end. That meant a
+  useful moment mid-conversation couldn't be persisted without ending
+  the session.
+- Added `/remember [text]` as a meta-command: no arguments summarizes
+  the conversation so far (same cheap model and path as end-of-session
+  summarization); given text, stores it verbatim with no summarization
+  step, since the user has already distilled it themselves.
+- Deliberately narrow scope: always writes to `conversation_memory`
+  only, never `tech_notes` or `resume_interview` — those already have
+  their own deliberate ingestion path (`/ingest`) and mixing an ad hoc
+  meta-command into that path would blur the two.
+
 ## Sub-agents — scoped down from an early broader idea
 
 - Clarified into two separate, smaller things rather than one big
