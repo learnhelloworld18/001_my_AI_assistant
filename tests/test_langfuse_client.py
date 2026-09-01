@@ -128,6 +128,37 @@ def test_a_broken_score_does_not_break_the_turn(monkeypatch):
     lc.score("confidence", "high")  # must not raise
 
 
+def test_self_report_is_off_by_default(monkeypatch):
+    """An experiment you switch on, not a standing cost."""
+    made = _install(monkeypatch)
+    monkeypatch.setattr(lc.config, "SELF_REPORT_ENABLED", False)
+    lc.get_callbacks("s1")
+    lc.score_self_report(0.9)
+    assert made[0].scores == []
+
+
+def test_self_report_uses_its_own_score_name(monkeypatch):
+    """Merging it with `confidence` would launder a guess into the evidence channel."""
+    made = _install(monkeypatch)
+    monkeypatch.setattr(lc.config, "SELF_REPORT_ENABLED", True)
+    lc.get_callbacks("s1")
+    lc.score_self_report(0.9)
+    assert made[0].scores[0]["name"] == lc.SELF_REPORT_SCORE
+    assert lc.SELF_REPORT_SCORE != lc.CONFIDENCE_SCORE
+
+
+def test_percentages_are_normalised(monkeypatch):
+    """Small models answer "90" where 0.9 was asked for, often in the same run."""
+    assert lc._as_fraction(90) == 0.9
+    assert lc._as_fraction(0.9) == 0.9
+    assert lc._as_fraction(1) == 1.0  # ambiguous, read as already-a-fraction
+
+
+def test_out_of_range_self_report_is_clamped_not_dropped(monkeypatch):
+    assert lc._as_fraction(-4) == 0.0
+    assert lc._as_fraction(250) == 1.0
+
+
 def test_flush_is_called_on_the_way_out(monkeypatch):
     """Without this the last turn's spans are lost - silently."""
     made = _install(monkeypatch)

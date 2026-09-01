@@ -271,6 +271,31 @@ anything:
   failure** — the answer goes out tagged low-confidence, which is the
   honest-labeling behavior this section already wants.
 
+### Self-reported confidence (`SELF_REPORT_ENABLED`, default off)
+
+The rule above bans a model's self-reported percentage from reaching the
+user. It does not ban *recording* one. With this flag on, the agent is
+asked for its own confidence number and it is logged to Langfuse under
+its own score name — never printed, never merged with the evidence tier.
+
+- **Why record it at all:** it answers a question the project currently
+  takes on faith — does this model's self-report track reality? Same
+  move as the critic flag: measure the claim instead of assuming it.
+- **Expected finding:** verbalized confidence from LLMs is poorly
+  calibrated and skewed high, and 3B local models are the worst case.
+  0.85-0.95 almost always, including on turns where `visit_webpage`
+  failed and the evidence tier says low. That would be the empirical
+  version of the rule, from these models rather than received wisdom.
+- **The query that matters** is the disagreement: traces where
+  self-report was high and the evidence tier was low. A large set
+  vindicates the rule; a near-empty one would mean self-report has
+  signal here, which is worth knowing too.
+- **Not free.** The number comes from a field on the structured output
+  the agent already produces — not a second model call — but asking for
+  it still constrains generation. Hence a flag, not a default.
+- Values are normalised to 0-1 before logging: small models answer "90"
+  where 0.9 was asked for, often within the same run.
+
 ### The optional model critic (`CRITIC_ENABLED`, default off)
 
 A separate node after the specialist, before the answer reaches the

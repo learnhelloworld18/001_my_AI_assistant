@@ -86,8 +86,14 @@ exhaustive correctness.
   observation text, it has no better access to whether a tool really
   worked. Its only real edge is a fresh context without the agent's
   committed narrative.
-- **Confidence tags are evidence-based, never a raw model self-report
-  or an invented percentage.** Each agent's confidence signal is tied
+- **Confidence tags shown to the user are evidence-based, never a raw
+  model self-report or an invented percentage.** The rule is about what
+  is displayed. A self-reported number may be *logged* to Langfuse under
+  `SELF_REPORT_SCORE`, behind `SELF_REPORT_ENABLED` (default off) — that
+  is measurement of the model, not a claim to anyone, and it exists to
+  test this rule rather than assume it. Never merge that score with the
+  evidence-based one, and never print it. Each agent's confidence signal
+  is tied
   to something that actually happened (RAG relevance score, whether
   `visit_webpage` succeeded, whether `validate_code.py` passed) — see
   `project_docs/PROJECT_REQUIREMENTS.md`'s Confidence & validation section. Asking a model

@@ -97,12 +97,19 @@ def get_callbacks(session_id: str) -> list[Any]:
     return [_handler] if _handler is not None else []
 
 
+# Score names, kept deliberately apart. Merging them would launder a guess into
+# the evidence channel, and comparing the two is the entire point.
+CONFIDENCE_SCORE = "confidence"  # evidence-based, and the only one ever shown
+SELF_REPORT_SCORE = "self_reported_confidence"  # logged for study, never shown
+
+
 def score(name: str, value: str | float, comment: str | None = None) -> None:
     """Attach a score to the trace just produced - confidence tier, critic verdict.
 
-    Scores are the evidence-based signals from PROJECT_REQUIREMENTS.md (did
-    visit_webpage return real content, did validate_code pass), never a model's
-    self-reported percentage. No-ops when tracing is off.
+    Anything scored under CONFIDENCE_SCORE is an evidence-based signal from
+    PROJECT_REQUIREMENTS.md (did visit_webpage return real content, did
+    validate_code pass) - never a model's self-reported number, which goes to
+    score_self_report() instead. No-ops when tracing is off.
     """
     if _handler is None:
         return
@@ -112,6 +119,43 @@ def score(name: str, value: str | float, comment: str | None = None) -> None:
             _handler.langfuse.score(trace_id=trace_id, name=name, value=value, comment=comment)
     except Exception:  # recording a tier is never worth failing the user's question over
         log.exception("langfuse: could not record score %s", name)
+
+
+def score_self_report(value: float, comment: str | None = None) -> None:
+    """Log the model's own confidence number, for calibration study only.
+
+    Never printed. A self-reported "87%" shown as a confidence tag reads as far
+    more rigorous than it is - that is what the hard rule forbids, and the rule
+    is about what the user sees. Logged under its own score name so it can be
+    compared against the evidence tier rather than confused with it.
+
+    The hypothesis this exists to test: verbalized confidence from LLMs is
+    poorly calibrated and skewed high, and 3B local models are the worst case.
+    Expect 0.85-0.95 almost always, including on turns where visit_webpage
+    failed and the evidence tier says low. The interesting Langfuse query is
+    the disagreement - high self-report against a low evidence tier.
+
+    Off unless SELF_REPORT_ENABLED: asking for the number constrains the
+    agent's generation, so it is an experiment you switch on, not a standing tax.
+    """
+    if not config.SELF_REPORT_ENABLED:
+        return
+    score(SELF_REPORT_SCORE, _as_fraction(value), comment)
+
+
+def _as_fraction(value: float) -> float:
+    """Normalise a confidence to 0-1 so the logged numbers are comparable.
+
+    Small models ignore the output format and answer "90" where 0.9 was asked
+    for, often in the same run - left raw, the series is unanalysable. Anything
+    still out of range after that is clamped and logged rather than dropped.
+    """
+    if 1 < value <= 100:
+        value = value / 100
+    if not 0 <= value <= 1:
+        log.warning("langfuse: self-report %s out of range, clamping", value)
+        value = min(max(value, 0.0), 1.0)
+    return value
 
 
 def flush() -> None:

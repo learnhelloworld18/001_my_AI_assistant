@@ -220,6 +220,26 @@ Two separate changes, for different reasons:
   If the latency numbers come back bad, the observation contract is
   where the real defect-catching lives anyway.
 
+## Self-reported confidence — banned from the screen, allowed in the log
+
+- The original rule said confidence is "never a raw model self-report."
+  Read literally that also forbids *measuring* the self-report, which
+  was never the intent — the objection is that a printed "87% confident"
+  reads as far more rigorous than it is. Displaying it and recording it
+  are different acts.
+- So `SELF_REPORT_ENABLED` (default off) logs the model's own number to
+  Langfuse under a separate score name. Two names, never merged:
+  merging would launder a guess into the evidence channel, and comparing
+  the two is the whole point.
+- This is the same reasoning as the critic flag — the project asserts
+  that self-reports are uncalibrated, and now it can check that against
+  its own models instead of taking it on faith. The expected result
+  (0.85-0.95 regardless of what the tools actually returned) would make
+  the case for the rule far better than the assertion does.
+- Normalising to 0-1 is not tidiness: small models answer "90" where 0.9
+  was asked for, sometimes within a single run, and a mixed series is
+  unanalysable.
+
 ## Observability — Langfuse pulled forward from "later upgrade" to "from the start"
 
 - Original plan: hand-roll a SQLite + timing-wrapper system first (v1),

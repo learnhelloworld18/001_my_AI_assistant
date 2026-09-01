@@ -26,4 +26,5 @@ docker compose -f docker-compose.langfuse.yml down -v        # stop, DELETE data
         4. Project → Settings → API Keys → Create new API key
 8.  Write config.py
 9.  Write main.py
-10.
+10. Created langfuse_client.py
+11.

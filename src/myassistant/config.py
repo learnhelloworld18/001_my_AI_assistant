@@ -82,6 +82,14 @@ CRITIC_MODEL = SUPERVISOR_MODEL
 # is weak, not that the wording needs another try - answer at the low tier.
 CRITIC_MAX_REVISIONS = 1
 
+# --- Self-reported confidence (calibration experiment, step 2) ---
+#
+# Off by default. Asks the agent for its own confidence number and logs it to
+# Langfuse under its own score name - never prints it. The hard rule stands:
+# what the user sees is evidence-based. This is measurement of the model, not
+# a claim to anyone, and it exists to test the rule rather than assume it.
+SELF_REPORT_ENABLED = os.environ.get("SELF_REPORT_ENABLED", "").lower() in ("1", "true", "yes")
+
 # --- Credentials ---
 
 # .env.example ships placeholders, and a placeholder is a non-empty string - so
