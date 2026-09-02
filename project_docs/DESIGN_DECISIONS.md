@@ -128,6 +128,54 @@ why. See `PROJECT_REQUIREMENTS.md` for the current spec in full.
   earlier. Corrected: add the tools to `research_agent`, and let the
   Langfuse tool-never-chosen metric decide whether a split is warranted.
 
+## Getting `Observation` to the evidence gate — the string bottleneck
+
+**The problem.** A LangChain tool's return value becomes a `ToolMessage`,
+whose content is a string — so the structured `Observation` a tool builds
+is flattened to text the moment it is returned. But the in-graph evidence
+gate needs the object: `ok` and `metrics`, not prose. Two consumers, one
+channel, and only one of them can have it.
+
+Two common solutions:
+
+1. **JSON serialization + parsing** — the tool returns JSON; the gate
+   parses the `ToolMessage` content back into an `Observation`.
+2. **Tool wrapper** — the wrapper calls the underlying function, gets the
+   `Observation`, and returns a LangGraph `Command` carrying *both* the
+   rendered string (as a `ToolMessage`) and the object (as a state update).
+
+**Chosen: the tool wrapper.** JSON loses the thing this project cares most
+about. The whole design rests on the observation *text* being the surface
+where a model notices trouble — `[TOOL FAILED] ... status=403` is legible
+to a 3B model in a way `{"ok": false, "detail": "...", "metrics": {...}}`
+is not. Option 1 makes the gate's job easier by degrading the primary
+safeguard to improve the secondary one, which is the wrong trade. The
+variant that parses our own *rendered* output is worse still: the gate
+would depend on a string format, and the gate exists precisely because
+reading strings is unreliable.
+
+The wrapper preserves what `Observation` was built for — `render()` for
+the model, `ok`/`metrics` for the graph — instead of collapsing them back
+into one channel.
+
+**Verified, not assumed**, against the pinned langgraph: a tool returning
+`Command(update={"observations": [...], "messages": [ToolMessage(...)]})`
+is passed through by `ToolNode`, and the `operator.add` reducer on
+`observations` merges it. Needs `InjectedToolCallId` — which lives in
+`langchain_core.tools`, not `langgraph.prebuilt`, in this version.
+
+**Rejected third option:** a per-turn collector (module global or
+`ContextVar`) that tools append to. Simpler, but it is hidden mutable
+state outside the graph, invisible to LangGraph's checkpointing — and it
+would fight the planned `asyncio.gather` over concurrent tool calls,
+which is the one place parallelism actually pays here.
+
+**Cost accepted:** each tool needs a thin wrapper rather than being a
+plain function, and the tools are now coupled to LangGraph's `Command`
+API rather than being framework-neutral. Worth it — the underlying
+functions stay pure and independently testable, which is where the
+existing tool tests already operate.
+
 ## Safety — added entirely, wasn't in the original design
 
 - **`coding_agent` safety boundary.** The first design just said "file/
