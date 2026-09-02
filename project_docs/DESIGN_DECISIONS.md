@@ -176,6 +176,43 @@ API rather than being framework-neutral. Worth it — the underlying
 functions stay pure and independently testable, which is where the
 existing tool tests already operate.
 
+## Routing checkpoint — measured, and the supervisor model changed
+
+Ran the step-2 checkpoint the spec asks for: real Ollama, stub agents,
+8 questions, scoring which agent got the first handoff.
+
+| Supervisor model | Correct first hop | Supervisor answered itself |
+|---|---|---|
+| `llama3.2:3b` | 6/8 (5/8 on a rerun) | 7/8 |
+| `qwen2.5:3b-instruct` | **8/8** | 8/8 |
+
+- **Switched `SUPERVISOR_MODEL` to `qwen2.5:3b-instruct`.** llama3.2:3b
+  was unstable run to run, and sometimes did not hand off at all — it
+  just answered the question, which is the thing the architecture exists
+  to prevent. Costs about 1.2s more per turn.
+- **A bonus we did not plan for:** `RESEARCH_MODEL` was already
+  qwen2.5:3b, so supervisor → research is no longer a model swap. One 3B
+  model in memory (1.93GB) instead of two (3.95GB), and `llama3.2:3b`
+  is now unused.
+- `CRITIC_MODEL` and `GENERAL_MODEL` alias `SUPERVISOR_MODEL`, so they
+  moved too. Both are fine on qwen.
+- **A measurement lesson:** the first run of this used stub agents that
+  replied "Grounded answer." The supervisor kept re-routing, because a
+  useless answer gives it nothing to stop on. Realistic stub replies
+  changed the numbers. A bad harness can look like a bad model.
+
+## Supervisor writes its own answer — known, deliberately left alone
+
+- After an agent hands back, `langgraph-supervisor` calls the supervisor
+  again, and it writes a final message of its own. So the user sees the
+  agent's answer followed by the supervisor's paraphrase of it.
+- That breaks the one-job rule. It is **structural to the library, not a
+  model failure** — both models did it, 7/8 and 8/8.
+- **Left in place on purpose for now**, so it can be seen first-hand in
+  the REPL before being designed around. The likely fix when we get
+  there is to display the last *agent* message rather than the last
+  message; the full trace stays in Langfuse either way.
+
 ## Safety — added entirely, wasn't in the original design
 
 - **`coding_agent` safety boundary.** The first design just said "file/

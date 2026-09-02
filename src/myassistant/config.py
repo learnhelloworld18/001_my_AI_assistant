@@ -50,7 +50,11 @@ OLLAMA_HOST = os.environ.get("OLLAMA_HOST", "http://localhost:11434")
 # Sized for 16GB. Only the coder model is 7B - it handles the primary use case
 # and is the one most hurt by a smaller model. The others are 3B so a chained
 # query (supervisor -> specialist -> specialist) doesn't force an eviction.
-SUPERVISOR_MODEL = os.environ.get("SUPERVISOR_MODEL", "llama3.2:3b")
+# Was llama3.2:3b. Changed after the step-2 routing checkpoint measured it at
+# 6/8 correct handoffs - and sometimes no handoff at all, the supervisor just
+# answering. qwen2.5:3b-instruct got 8/8. It also matches RESEARCH_MODEL, so a
+# supervisor -> research hop is no longer a model swap.
+SUPERVISOR_MODEL = os.environ.get("SUPERVISOR_MODEL", "qwen2.5:3b-instruct")
 RESEARCH_MODEL = os.environ.get("RESEARCH_MODEL", "qwen2.5:3b-instruct")
 CODING_MODEL = os.environ.get("CODING_MODEL", "qwen2.5-coder:7b-instruct-q4_K_M")
 EMBED_MODEL = os.environ.get("EMBED_MODEL", "nomic-embed-text")  # embeddings, not chat

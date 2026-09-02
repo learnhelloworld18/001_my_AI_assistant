@@ -146,8 +146,12 @@ See `ARCHITECTURE.md` for the full request-flow diagram.
 |---|---|---|
 | Coding | `qwen2.5-coder:7b-instruct-q4_K_M` | Python/SQL/PySpark/dbt/Terraform |
 | Research / docs | `qwen2.5:3b-instruct` or `qwen2.5:7b` | general reasoning |
-| Supervisor / quick chat | `llama3.2:1b` or `:3b` | fast routing decisions, low-stakes drafts |
+| Supervisor / quick chat | `qwen2.5:3b-instruct` | was `llama3.2:3b`; changed after the routing checkpoint measured 6/8 vs 8/8 correct handoffs — see DESIGN_DECISIONS |
 | Embeddings (RAG) | `nomic-embed-text` | not a chat model |
+
+Supervisor, research, general and critic now all run `qwen2.5:3b-instruct`,
+so a supervisor → agent hop is not a model swap. One 3B resident (1.93GB)
+instead of two, and `llama3.2:3b` is unused.
 
 ## RAG — personal knowledge base
 
