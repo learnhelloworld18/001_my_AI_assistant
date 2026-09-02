@@ -24,3 +24,6 @@ repos:
     rev: v1.14.1
     hooks:
       - id: mypy
+        # The hook runs in its own isolated venv, so third-party stubs have to
+        # be declared here - they are not picked up from the project's venv.
+        additional_dependencies: [types-requests]

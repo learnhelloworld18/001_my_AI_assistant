@@ -12,17 +12,25 @@ from myassistant.state import (
     render_evidence,
     tier_from_observations,
 )
-from myassistant.tools.observation import failed, fetched
+from myassistant.tools.observation import Observation, failed, fetched
 
 REAL_PAGE = "Kubernetes schedules containers across a cluster. " * 40
 
 
 def _ok():
-    return fetched(REAL_PAGE, source="https://example.com", status=200)
+    """A real page read - the only thing that earns HIGH."""
+    return fetched(REAL_PAGE, source="https://example.com", kind="page", status=200)
+
+
+def _snippets():
+    """A successful search. Useful, but a claim about a page, not the page."""
+    return Observation(
+        ok=True, detail="3 search results", content="...", metrics={"kind": "search"}
+    )
 
 
 def _bad():
-    return failed("HTTP 403", source="https://blocked.example", status=403)
+    return failed("HTTP 403", source="https://blocked.example", kind="page", status=403)
 
 
 def _channels():
@@ -59,8 +67,18 @@ def test_every_key_is_optional():
     assert "observations" in AssistantState.__optional_keys__
 
 
-def test_one_good_observation_is_enough_for_high():
+def test_one_page_read_is_enough_for_high():
     assert tier_from_observations([_bad(), _ok()]) is ConfidenceTier.HIGH
+
+
+def test_successful_search_alone_is_not_high():
+    """A snippet is a claim about a page, not the page. The spec says LOW."""
+    assert tier_from_observations([_snippets()]) is ConfidenceTier.LOW
+
+
+def test_search_plus_a_failed_visit_is_still_low():
+    """The common failure: found the page, could not read it."""
+    assert tier_from_observations([_snippets(), _bad()]) is ConfidenceTier.LOW
 
 
 def test_all_failed_observations_means_low():
@@ -74,7 +92,7 @@ def test_no_observations_means_low_not_high():
 
 def test_gate_reads_ok_not_the_presence_of_text():
     """A block page carries plenty of text; the gate must still call it LOW."""
-    block_page = fetched("Please enable JavaScript. " * 20, source="https://x.example")
+    block_page = fetched("Please enable JavaScript. " * 20, source="https://x.example", kind="page")
     assert block_page.content == ""
     assert tier_from_observations([block_page]) is ConfidenceTier.LOW
 

@@ -1,4 +1,6 @@
 """The typed state passed between supervisor and agents.
+i.e the data that persists and gets passed between steps of an agent loop —
+as a structured, schema-defined object instead of a loose, arbitrary dictionary.
 
 One schema for the whole graph, so a node cannot invent a key or quietly change
 a type - the hard rule against passing bare dicts around LangGraph.
@@ -37,10 +39,25 @@ class ConfidenceTier(StrEnum):
 
 class Verdict(BaseModel):
     """The critic's answer. Binary plus a reason, never a score.
+         note : The critic is a second call to a local model whose only job is to check the first one's work
+         defined as agents/critic.py
+     Pydantic rather than a dataclass because this is parsed out of a model's
+     output - the validation is the point, and it doubles as the JSON schema
+     handed to the model.
 
-    Pydantic rather than a dataclass because this is parsed out of a model's
-    output - the validation is the point, and it doubles as the JSON schema
-    handed to the model.
+     you ask something
+    ↓
+     research_agent  → calls web_search, visit_webpage
+                     → produces an answer + a list of Observations
+     ↓
+     critic          → gets three things:
+                         1. your question
+                         2. the agent's draft answer
+                         3. render_evidence(observations)  ← the actual tool output
+                     → returns Verdict(supported=True/False, issue="...")
+     ↓
+     if supported  → you see the answer
+     if not        → one revision (CRITIC_MAX_REVISIONS), then answer anyway at LOW
     """
 
     supported: bool = Field(description="Is the answer supported by the tool evidence?")
@@ -72,17 +89,24 @@ class AssistantState(TypedDict, total=False):
 
 
 def tier_from_observations(observations: list[Observation]) -> ConfidenceTier:
-    """Default evidence gate: did any tool actually return usable content?
+    """research_agent's evidence gate: was a real page actually read?
 
-    This is research_agent's rule. docs_agent (RAG score threshold) and
-    coding_agent (validate_code passed) read their own signals out of
-    Observation.metrics instead - same evidence, different question.
+    HIGH requires an ok observation tagged kind="page" - i.e. visit_webpage (or
+    a docs tool) came back with real content. A successful web_search is *not*
+    enough: a snippet is a claim about a page, not the page, and the spec is
+    explicit that snippets-only is the LOW tier. That distinction is the whole
+    reason tools tag their observations with a kind.
+
+    docs_agent (RAG score threshold) and coding_agent (validate_code passed)
+    read their own signals out of Observation.metrics - same evidence,
+    different question.
 
     Deliberately reads Observation.ok rather than asking the model whether it
     succeeded: the model can only notice a failure that is visible in the
     observation text, and this exists to catch the ones that are not.
     """
-    return ConfidenceTier.HIGH if any(o.ok for o in observations) else ConfidenceTier.LOW
+    read_a_page = any(o.ok and o.metrics.get("kind") == "page" for o in observations)
+    return ConfidenceTier.HIGH if read_a_page else ConfidenceTier.LOW
 
 
 def render_evidence(observations: list[Observation]) -> str:
