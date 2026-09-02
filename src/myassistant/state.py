@@ -20,6 +20,7 @@ from typing import Annotated, TypedDict
 
 from langchain_core.messages import AnyMessage
 from langgraph.graph.message import add_messages
+from langgraph.managed import RemainingSteps
 from pydantic import BaseModel, Field
 
 from myassistant.tools.observation import Observation
@@ -81,6 +82,12 @@ class AssistantState(TypedDict, total=False):
     # observations would *replace* the list, so evidence from an earlier tool
     # call would vanish exactly when the gate needs to weigh it.
     observations: Annotated[list[Observation], operator.add]
+
+    # LangGraph's own step budget, derived from the run's recursion_limit.
+    # create_react_agent requires this key and uses it to stop *gracefully* when
+    # the budget runs low - returning a message instead of raising, which is the
+    # spec's rule that exhausting the cap is not an error.
+    remaining_steps: RemainingSteps
 
     confidence: ConfidenceTier  # evidence-based, and the only tier ever shown
     self_report: float  # the model's own number - logged, never displayed

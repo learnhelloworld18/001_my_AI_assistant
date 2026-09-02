@@ -17,6 +17,9 @@ from __future__ import annotations
 from dataclasses import dataclass, field
 from typing import Any
 
+from langchain_core.messages import ToolMessage
+from langgraph.types import Command
+
 # Below this, a "successful" fetch is a consent wall, a JS shell or an error
 # page - superficially fine text that reads as a real page to the model.
 # Turning that into an explicit failure is the whole point of this module.
@@ -106,6 +109,23 @@ def fetched(content: str, source: str, **metrics: Any) -> Observation:
         content=content,
         source=source,
         metrics={"chars": chars, **metrics},
+    )
+
+
+def emit(obs: Observation, tool_call_id: str) -> Command:
+    """Send one Observation to both of its consumers.
+
+    A LangChain tool's return becomes a ToolMessage whose content is a string,
+    so the object would otherwise be flattened away the moment it is returned.
+    A Command carries both: the rendered text for the model to reason over, and
+    the Observation itself for the in-graph evidence gate, which must not have
+    to parse prose to find out whether a tool worked.
+    """
+    return Command(
+        update={
+            "observations": [obs],
+            "messages": [ToolMessage(content=obs.render(), tool_call_id=tool_call_id)],
+        }
     )
 
 

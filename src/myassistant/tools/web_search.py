@@ -10,13 +10,14 @@ kind="search", and the confidence gate will not award HIGH on search alone.
 
 from __future__ import annotations
 
-from typing import Any
+from typing import Annotated, Any
 
-from langchain_core.tools import tool
+from langchain_core.tools import InjectedToolCallId, tool
 from langchain_tavily import TavilySearch
+from langgraph.types import Command
 
 from myassistant import config
-from myassistant.tools.observation import Observation, failed
+from myassistant.tools.observation import Observation, emit, failed
 
 # Low on purpose: more results is more context for a 3B model to lose the
 # thread in, and the useful next step is visiting one page, not skimming ten.
@@ -47,29 +48,19 @@ def _format(results: list[dict[str, Any]]) -> str:
     return "\n\n".join(blocks)
 
 
-@tool
-def web_search(query: str) -> str:
-    """Search the web and return short snippets from the top results.
+def search(query: str) -> Observation:
+    """The actual search. Pure: no graph, no tool plumbing, directly testable."""
 
-    Returns titles, URLs and a couple of sentences each - not full pages. When
-    a snippet looks like it holds the answer, call visit_webpage on its URL to
-    read the actual page. Use for current events, product news, and finding
-    which page to read. Not for official cloud or library documentation, which
-    has its own tools.
-
-    Args:
-        query: what to search for, in plain words
-    """
     # A missing key is a configuration failure, not an empty result set. Saying
     # so plainly is the difference between the model retrying pointlessly and
     # the model reporting that search is unavailable.
     if not config.TAVILY_ENABLED:
-        return failed("web search unavailable: TAVILY_API_KEY is not configured").render()
+        return failed("web search unavailable: TAVILY_API_KEY is not configured")
 
     try:
         raw = _search().invoke({"query": query})
     except Exception as e:  # noqa: BLE001 - any failure must surface as a loud Observation
-        return failed(f"web search failed: {e}", metrics={"kind": "search"}).render()
+        return failed(f"web search failed: {e}", kind="search")
 
     results = raw.get("results", []) if isinstance(raw, dict) else []
 
@@ -80,11 +71,26 @@ def web_search(query: str) -> str:
             f"web search returned no results for {query!r} - try different wording",
             kind="search",
             n_results=0,
-        ).render()
+        )
 
     return Observation(
         ok=True,
         detail=f"{len(results)} search results (snippets only - visit_webpage for full content)",
         content=_format(results),
         metrics={"kind": "search", "n_results": len(results)},
-    ).render()
+    )
+
+
+@tool
+def web_search(query: str, tool_call_id: Annotated[str, InjectedToolCallId]) -> Command:
+    """Search the web and return short snippets from the top results.
+
+    Returns titles, URLs and a couple of sentences each - not full pages. When
+    a snippet looks like it holds the answer, call visit_webpage on its URL to
+    read the actual page: snippets alone are never enough to answer from.
+    Use for current events, product news, and finding which page to read.
+
+    Args:
+        query: what to search for, in plain words
+    """
+    return emit(search(query), tool_call_id)

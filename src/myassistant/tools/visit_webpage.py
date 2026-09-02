@@ -12,12 +12,15 @@ on a keyword is how you reach a section that sits below the cut.
 
 from __future__ import annotations
 
+from typing import Annotated
+
 import requests
 from bs4 import BeautifulSoup
-from langchain_core.tools import tool
+from langchain_core.tools import InjectedToolCallId, tool
+from langgraph.types import Command
 from markdownify import markdownify
 
-from myassistant.tools.observation import failed, fetched
+from myassistant.tools.observation import Observation, emit, failed, fetched
 
 MAX_LENGTH = 8000  # roughly what a 3B context can absorb without losing the question
 WINDOW = 4000  # excerpt size when centring on a query match
@@ -59,19 +62,8 @@ def _fit(text: str, query: str) -> tuple[str, bool]:
     return text[:MAX_LENGTH] + "\n...[truncated - pass a query to search deeper]", True
 
 
-@tool
-def visit_webpage(url: str, query: str = "") -> str:
-    """Fetch a web page and return its text content.
-
-    Use after web_search when a snippet suggests the page holds the answer.
-    Long pages are truncated; if what you need is likely further down (a named
-    section, a table, a heading), pass that as `query` to get an excerpt
-    centred on the first match instead of just the top of the page.
-
-    Args:
-        url: full URL to fetch, e.g. from a web_search result
-        query: optional keyword or phrase to centre the excerpt on
-    """
+def visit(url: str, query: str = "") -> Observation:
+    """The actual fetch. Pure: no graph, no tool plumbing, directly testable."""
     try:
         resp = requests.get(url, timeout=TIMEOUT_S, headers=_HEADERS)
         resp.raise_for_status()
@@ -79,9 +71,7 @@ def visit_webpage(url: str, query: str = "") -> str:
         # Status codes live in metrics so the model sees 403 vs 404 vs timeout
         # and can decide whether a different URL is worth trying.
         status = getattr(getattr(e, "response", None), "status_code", None)
-        return failed(
-            f"could not fetch the page: {e}", source=url, kind="page", status=status
-        ).render()
+        return failed(f"could not fetch the page: {e}", source=url, kind="page", status=status)
 
     text = _clean(resp.text)
     payload, truncated = _fit(text, query)
@@ -96,4 +86,23 @@ def visit_webpage(url: str, query: str = "") -> str:
         status=resp.status_code,
         full_chars=len(text.strip()),
         truncated=truncated,
-    ).render()
+    )
+
+
+@tool
+def visit_webpage(
+    url: str, tool_call_id: Annotated[str, InjectedToolCallId], query: str = ""
+) -> Command:
+    """Fetch a web page and return its text content.
+
+    Use after web_search when a snippet suggests the page holds the answer -
+    this is the tool that produces real evidence, not just a claim about a
+    page. Long pages are truncated; if what you need is likely further down (a
+    named section, a table, a heading), pass that as `query` to get an excerpt
+    centred on the first match instead of just the top of the page.
+
+    Args:
+        url: full URL to fetch, e.g. from a web_search result
+        query: optional keyword or phrase to centre the excerpt on
+    """
+    return emit(visit(url, query), tool_call_id)

@@ -35,7 +35,7 @@ def _install(monkeypatch, resp=None, error=None):
 
 
 def _run(url="https://example.com", query=""):
-    return vw.visit_webpage.invoke({"url": url, "query": query})
+    return vw.visit(url, query).render()
 
 
 def test_a_real_page_comes_back_ok(monkeypatch):

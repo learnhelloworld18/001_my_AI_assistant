@@ -34,7 +34,7 @@ def _install(monkeypatch, payload=None, error=None, enabled=True):
 
 
 def _run(query="spark shuffle"):
-    return ws.web_search.invoke({"query": query})
+    return ws.search(query).render()
 
 
 RESULTS = {
