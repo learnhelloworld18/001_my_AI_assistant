@@ -55,6 +55,12 @@ RESEARCH_MODEL = os.environ.get("RESEARCH_MODEL", "qwen2.5:3b-instruct")
 CODING_MODEL = os.environ.get("CODING_MODEL", "qwen2.5-coder:7b-instruct-q4_K_M")
 EMBED_MODEL = os.environ.get("EMBED_MODEL", "nomic-embed-text")  # embeddings, not chat
 
+# general_agent reuses the supervisor's model rather than loading a third one.
+# That model runs every turn with a 30m keep_alive, so it is always resident -
+# and general_agent exists for *fast* replies, where a 2-5s cold load would be
+# most of the answer's latency.
+GENERAL_MODEL = SUPERVISOR_MODEL
+
 # How long Ollama keeps a model in memory after its last use. The supervisor
 # runs every turn so it stays warm; specialists unload sooner so two 7B models
 # are never resident at once.
