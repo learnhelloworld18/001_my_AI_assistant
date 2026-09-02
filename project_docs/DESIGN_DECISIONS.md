@@ -213,6 +213,35 @@ Ran the step-2 checkpoint the spec asks for: real Ollama, stub agents,
   there is to display the last *agent* message rather than the last
   message; the full trace stays in Langfuse either way.
 
+## Things that bit us while wiring step 2
+
+Self-contained on purpose — this section is meant to be lifted into its
+own file later.
+
+**`langchain-mcp-adapters` almost did not fit.** One pin cascades into
+another: Langfuse v2 needs LangChain 0.3.x, and the newer adapters need
+LangChain 1.x. Tested three versions:
+
+| Version | Result |
+|---|---|
+| 0.2.1+ | requires `langchain-core>=1.0.0` outright |
+| 0.2.0 | *claims* to accept 0.3.x, but imports `langchain_core.messages.content`, which only exists in 1.x — the declared floor is simply wrong, and it fails at import |
+| **0.1.14** | actually works |
+
+Also had to add `mcp<2`. The adapter leaves `mcp` unbounded, so a fresh
+install picks 2.x, where `mcp.shared.context` no longer exports
+`RequestContext` — import error again. Lesson: a package's declared
+dependencies are a claim, not a guarantee. Import it and see.
+
+**Wiring the supervisor quietly made the test suite hit live Ollama.**
+`test_main.py` calls `run_turn`, `run_turn` calls `answer`, and `answer`
+now builds the real graph. A 0.7s suite became 26s of real model calls,
+and it broke the rule that live services are opt-in only. Nothing
+failed, which is why it was easy to miss — the tests still passed, just
+slowly, and against a live model. Fixed with an autouse fixture that
+stubs the graph and the Langfuse client. Lesson: when a leaf function
+starts reaching outside the process, every test above it does too.
+
 ## Safety — added entirely, wasn't in the original design
 
 - **`coding_agent` safety boundary.** The first design just said "file/
