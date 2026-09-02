@@ -1,15 +1,45 @@
 """main.py: command routing, the '/'-only completer, and error containment."""
 
 import pytest
+from langchain_core.messages import AIMessage, HumanMessage
 from prompt_toolkit.completion import CompleteEvent
 from prompt_toolkit.document import Document
 
 from myassistant import main
+from myassistant.state import ConfidenceTier
 
 
 @pytest.fixture
 def session():
     return main.Session()
+
+
+class _StubGraph:
+    """Stands in for the compiled supervisor. Records the state it was given."""
+
+    def __init__(self, text="a reply", tier=None):
+        self.text, self.tier, self.seen = text, tier, None
+
+    def invoke(self, state, config=None):
+        self.seen = state
+        out = {"messages": [*state["messages"], AIMessage(content=self.text)]}
+        if self.tier is not None:
+            out["confidence"] = self.tier
+        return out
+
+
+@pytest.fixture(autouse=True)
+def _no_live_services(monkeypatch):
+    """Never let the default test run reach Ollama or Langfuse.
+
+    Without this, run_turn() builds the real supervisor and answers for real -
+    which turned a 1s suite into 26s of live model calls. Live coverage belongs
+    behind @pytest.mark.live, not in every commit.
+    """
+    monkeypatch.setattr(main, "_supervisor", lambda: _StubGraph())
+    monkeypatch.setattr(main.langfuse_client, "get_callbacks", lambda sid: [])
+    monkeypatch.setattr(main.langfuse_client, "score", lambda *a, **kw: None)
+    monkeypatch.setattr(main.langfuse_client, "flush", lambda: None)
 
 
 def _complete(text: str) -> list[str]:
@@ -36,7 +66,8 @@ def test_unknown_command_does_not_crash(session, capsys):
 
 def test_plain_text_is_not_treated_as_a_command(session):
     main.run_turn("what is a CTE", session)
-    assert session.history[0][0] == "what is a CTE"
+    assert isinstance(session.history[0], HumanMessage)
+    assert session.history[0].content == "what is a CTE"
 
 
 def test_clear_empties_history(session):
@@ -89,6 +120,60 @@ def test_every_command_is_dispatchable():
     for name in main.COMMANDS:
         assert callable(main.COMMANDS[name].run)
         assert main.COMMANDS[name].help
+
+
+# --- supervisor wiring ---
+
+
+def test_history_is_replayed_into_the_next_turn(session, monkeypatch):
+    """A follow-up question needs the earlier exchange, or "and that one?" fails."""
+    graph = _StubGraph()
+    monkeypatch.setattr(main, "_supervisor", lambda: graph)
+    main.run_turn("first", session)
+    main.run_turn("second", session)
+    assert [m.content for m in graph.seen["messages"]] == ["first", "a reply", "second"]
+
+
+def test_only_the_question_and_answer_are_kept(session, monkeypatch):
+    """Handoffs and tool output must not eat a 3B model's context window."""
+    monkeypatch.setattr(main, "_supervisor", lambda: _StubGraph())
+    main.run_turn("hello", session)
+    assert len(session.history) == 2
+
+
+def test_a_low_tier_is_shown_to_the_user(session, monkeypatch, capsys):
+    monkeypatch.setattr(main, "_supervisor", lambda: _StubGraph(tier=ConfidenceTier.LOW))
+    main.run_turn("hello", session)
+    assert "thin evidence" in capsys.readouterr().out
+
+
+def test_an_ungrounded_tier_is_shown_to_the_user(session, monkeypatch, capsys):
+    monkeypatch.setattr(main, "_supervisor", lambda: _StubGraph(tier=ConfidenceTier.UNGROUNDED))
+    main.run_turn("hello", session)
+    assert "not verified" in capsys.readouterr().out
+
+
+def test_a_high_tier_is_not_shown(session, monkeypatch, capsys):
+    """A tag on every answer becomes wallpaper - the exception is the signal."""
+    monkeypatch.setattr(main, "_supervisor", lambda: _StubGraph(tier=ConfidenceTier.HIGH))
+    main.run_turn("hello", session)
+    out = capsys.readouterr().out
+    assert "[" not in out
+
+
+def test_the_tier_is_scored_to_langfuse(session, monkeypatch):
+    scored = []
+    monkeypatch.setattr(main, "_supervisor", lambda: _StubGraph(tier=ConfidenceTier.LOW))
+    monkeypatch.setattr(main.langfuse_client, "score", lambda n, v, **kw: scored.append((n, v)))
+    main.run_turn("hello", session)
+    assert scored == [(main.langfuse_client.CONFIDENCE_SCORE, "low")]
+
+
+def test_an_empty_final_message_does_not_print_nothing(session, monkeypatch, capsys):
+    """A blank last message would look like a hang, not an answer."""
+    monkeypatch.setattr(main, "_supervisor", lambda: _StubGraph(text="   "))
+    main.run_turn("hello", session)
+    assert "hello" in capsys.readouterr().out  # falls back to the last non-empty
 
 
 def test_failing_turn_is_caught_not_raised(session, monkeypatch, capsys):

@@ -5,13 +5,30 @@ description = "Personal local-first multi-agent AI assistant (Ollama + LangGraph
 requires-python = ">=3.12"
 # Upper bounds are deliberate, not cargo-culted. The Langfuse v2 SDK's
 # LangChain integration imports `langchain.callbacks.base`, which LangChain
-# 1.x removed - so 1.x breaks tracing entirely. Langfuse v2 is itself pinned
+# 1.x removed - so 1.x breaks tracing entirely. Hence we are using a lower version of langchain
+# Langfuse v2 is itself pinned
 # because the v3 server needs ClickHouse/Redis/MinIO, which does not fit in
 # 16GB alongside Ollama. Do not relax these without re-testing that
 # `from langfuse.callback import CallbackHandler` still imports.
 dependencies = [
     "langgraph>=0.2.0,<1.0",
     "langgraph-supervisor>=0.0.29,<0.1",
+    # Binds external MCP servers' tools (Microsoft Learn, Context7, AWS docs)
+    # as ordinary LangChain tools. Every tool this project owns is still
+    # hand-written - see PROJECT_REQUIREMENTS, External documentation sources.
+    #
+    # Pinned hard, and the pin is a downstream consequence of the Langfuse v2
+    # pin above. Tested, not guessed:
+    #   0.2.1+  require langchain-core>=1.0.0 outright.
+    #   0.2.0   claims langchain-core>=0.3.36 but imports
+    #           langchain_core.messages.content, which only exists in 1.x -
+    #           its declared floor is simply wrong, and it fails at import.
+    #   0.1.14  actually works on langchain-core 0.3.x.
+    # Raising this needs LangChain 1.x, which breaks Langfuse v2 tracing.
+    "langchain-mcp-adapters==0.1.14",
+    # Left unbounded by the adapter, so a fresh resolve picks mcp 2.x, whose
+    # mcp.shared.context no longer exports RequestContext - import error.
+    "mcp>=1.9.2,<2",
     "langchain>=0.3.0,<1.0",
     "langchain-core>=0.3.0,<1.0",
     "langchain-ollama>=0.2.0,<1.0",

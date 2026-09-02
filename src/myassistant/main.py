@@ -3,8 +3,8 @@
 Meta-commands (anything starting with '/') are handled here and never reach an
 agent - faster and more predictable than asking a model to recognise them.
 
-No agent routing yet: answer() returns a placeholder, replaced by the
-supervisor call in step 2.
+answer() hands the turn to the supervisor, which routes it to one agent and
+returns that agent's reply plus an evidence-based confidence tier.
 """
 
 from __future__ import annotations
@@ -14,7 +14,9 @@ import uuid
 from collections.abc import Callable, Iterable
 from dataclasses import dataclass
 from datetime import UTC, datetime
+from typing import Any
 
+from langchain_core.messages import AIMessage, BaseMessage, HumanMessage
 from prompt_toolkit import PromptSession
 from prompt_toolkit.completion import CompleteEvent, Completer, Completion, PathCompleter
 from prompt_toolkit.document import Document
@@ -22,6 +24,8 @@ from prompt_toolkit.history import FileHistory
 
 # Imported first so load_dotenv() runs before anything reads os.environ.
 from myassistant import config
+from myassistant.observability import langfuse_client
+from myassistant.state import ConfidenceTier
 
 log = logging.getLogger("myassistant")
 
@@ -46,7 +50,11 @@ class Session:
 
     def __init__(self) -> None:
         """Start empty, with a fresh id and start time."""
-        self.history: list[tuple[str, str]] = []
+        # BaseMessage, not (user, reply) tuples: a turn now produces several
+        # messages and the graph speaks in messages. Only the question and the
+        # final answer are kept - replaying handoffs and tool output would
+        # spend a 3B model's context window on its own scratch work.
+        self.history: list[BaseMessage] = []
         # Groups this run's Langfuse traces into one session (step 2/8) - without it each turn shows up as an unrelated trace.
         self.session_id = str(uuid.uuid4())
         # Used by the end-of-session summary (step 6) and /stats (step 9).
@@ -54,7 +62,7 @@ class Session:
 
     def record(self, user: str, reply: str) -> None:
         """Append one completed exchange to the history."""
-        self.history.append((user, reply))
+        self.history.extend([HumanMessage(content=user), AIMessage(content=reply)])
 
     def clear(self) -> None:
         """Drop all history - backs /clear.
@@ -170,9 +178,70 @@ def handle_meta(line: str, session: Session) -> bool:
     return cmd.run(arg.strip(), session)
 
 
+# Built once, lazily. Constructing it opens Ollama clients, so doing it at
+# import time would make `myassistant --help` need a running Ollama, and would
+# make every test that imports this module slow.
+_graph: Any | None = None
+
+
+def _supervisor() -> Any:
+    """The compiled supervisor graph, built on first use."""
+    global _graph
+    if _graph is None:
+        from myassistant.supervisor import build
+
+        _graph = build()
+    return _graph
+
+
+# HIGH is not shown: a tag on every answer becomes wallpaper, and the useful
+# signal is the exception. LOW and UNGROUNDED are always shown, because both
+# mean "do not repeat this without checking".
+_TAGS = {
+    ConfidenceTier.LOW: "[thin evidence - the sources did not really cover this]",
+    ConfidenceTier.UNGROUNDED: "[general knowledge, not verified against any source]",
+}
+
+
+def _final_text(messages: list[BaseMessage]) -> str:
+    """The last message that actually said something.
+
+    Deliberately not filtered down to the last *agent* message. The supervisor
+    currently adds a paraphrase of its own after an agent answers, which breaks
+    the one-job rule - left visible on purpose so it can be judged first-hand
+    before being designed around (see DESIGN_DECISIONS).
+    """
+    for message in reversed(messages):
+        text = str(message.content).strip()
+        if text:
+            return text
+    return "(no answer produced)"
+
+
 def answer(question: str, session: Session) -> str:
-    """Placeholder for the supervisor call added in step 2."""
-    return f"(no agents wired up yet) you asked: {question}"
+    """Run one turn through the supervisor and return what to print.
+
+    Not streamed yet: the whole turn lands at once, so a multi-tool research
+    question is a silent wait. Streaming is the next responsiveness fix.
+    """
+    state = {"messages": [*session.history, HumanMessage(content=question)]}
+    result = _supervisor().invoke(
+        state,
+        {
+            # Groups every span of this turn under the session's Langfuse trace.
+            "callbacks": langfuse_client.get_callbacks(session.session_id),
+            # Supervisor hops plus each agent's own budget. Generous here because
+            # the agents cap themselves; this only stops a routing loop.
+            "recursion_limit": 25,
+        },
+    )
+
+    text = _final_text(result.get("messages", []))
+    tier = result.get("confidence")
+    if tier is not None:
+        langfuse_client.score(langfuse_client.CONFIDENCE_SCORE, str(tier))
+    tag = _TAGS.get(tier) if tier is not None else None
+    return f"{text}\n{tag}" if tag else text
 
 
 def run_turn(line: str, session: Session) -> bool:
@@ -238,6 +307,9 @@ def main() -> None:
             log.exception("turn failed: %s", line)
             print(f"error: {e}")
 
+    # Langfuse batches spans on a background thread, so without this the last
+    # turn of every session is silently never sent.
+    langfuse_client.flush()
     print("bye")
 
 
