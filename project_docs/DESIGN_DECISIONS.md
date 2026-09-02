@@ -78,6 +78,55 @@ why. See `PROJECT_REQUIREMENTS.md` for the current spec in full.
   reference only, not a source to copy from. Tools are built as plain
   LangChain tools (`@tool`/`Tool`) from scratch; `langchain-mcp-adapters`
   is only used if an actual external MCP server gets connected later.
+- **"Later" arrived: external MCP servers adopted.** The interview-prep
+  use case made the gap concrete — a ~3B model answering senior-level
+  PySpark/Kafka/cloud questions produces fluent, specifically wrong
+  detail, and nothing in the output signals it. Official docs are the
+  grounding, and they cost no local RAM (network calls, not models).
+  Microsoft Learn, Context7 and AWS Documentation are bound through
+  `langchain-mcp-adapters`; Stack Exchange and GitHub REST are ordinary
+  HTTP and stay hand-written. The original rule still holds where it
+  matters: every tool *this project owns* is hand-written, and the
+  adapter is only how someone else's server gets bound.
+- **Adapter over hand-rolling the MCP protocol — a deliberate trade.**
+  Hand-rolling the JSON-RPC handshake would have had more learning value
+  (priority 2) and kept tool descriptions under our control. Chosen
+  against because three servers means three handshakes, and the boilerplate
+  repeats without teaching anything after the first. Two things are kept
+  back from the adapter to preserve what mattered: the tool list is
+  filtered before binding, and descriptions are rewritten rather than
+  inherited.
+- **Filtering is not optional.** AWS's documentation server alone exposes
+  six tools; the three servers together are ~10. `get_tools()` returns
+  them flat. Bound unfiltered onto `research_agent`'s existing two, this
+  is the `wikipedia_search`-never-chosen failure at four times the scale.
+
+## Agents vs. tools — the criterion, written down after nearly getting it wrong
+
+- The question "why not one research agent per source — Azure, AWS,
+  Spark?" came up, and the first answer given ("split by job, not by
+  source") was too blunt to be useful. Replaced with a test that
+  actually discriminates: **does the split change anything other than
+  the tool list?** Different loop shape, evidence signal, model, or
+  prompt → an agent. Only a different endpoint → a tool.
+- Domain-splitting `research_agent` fails that test on every count: same
+  model, same loop, same "did the fetch return real content" signal.
+  It moves the decision from "which of N tools" to "which of N agents",
+  both made by a ~3B model, so nothing is gained and a handoff is added.
+- The concrete cost is cross-domain questions, which are normal for data
+  engineering: "move data from Kinesis to Event Hubs" spans two clouds.
+  One agent answers in one handoff with two tool calls; two split agents
+  need two handoffs plus a synthesis node — and that node would both
+  research and write, which the one-job rule forbids.
+- arXiv is the counter-example that would earn its own agent: its loop
+  is search → read abstract → judge relevance → maybe fetch, with a
+  different evidence signal. Deferred, but on the right side of the line.
+- An earlier draft of this advice proposed a dedicated `vendor_docs_agent`
+  plus a keyword pre-filter *before writing any code* — premature
+  optimisation against unmeasured routing failure, and inconsistent with
+  the "start merged, split on evidence" position taken two paragraphs
+  earlier. Corrected: add the tools to `research_agent`, and let the
+  Langfuse tool-never-chosen metric decide whether a split is warranted.
 
 ## Safety — added entirely, wasn't in the original design
 
@@ -432,3 +481,9 @@ and its real job is narrower than that.
   to study, not a v1 requirement — this project's supervisor stays
   synchronous/blocking for simplicity, revisited only if that becomes a
   real responsiveness problem.
+
+
+Using langchain-mcp-adapters:
+langchain-mcp-adapters is an official LangChain library that bridges MCP servers into LangChain's (and LangGraph's) own tool-calling system, so you can plug MCP tools straight into a LangChain agent without writing custom glue code yourself.
+
+Here's the actual problem it solves: LangChain has its own internal notion of what a "tool" is — a Python object with a name, description, an input schema, and a callable function, structured a specific way its agents know how to work with. MCP servers, on the other hand, expose tools through the MCP protocol itself — you connect a client session, call list_tools(), get back MCP-shaped tool definitions, and invoke them via call_tool(), all as JSON-RPC messages over stdio or HTTP/SSE. Those two shapes aren't compatible out of the box. Without an adapter, you'd have to manually loop over whatever an MCP server's list_tools() returns and hand-wrap each one into a LangChain Tool object yourself, translating the schema and wiring up the call/response plumbing in both directions.

@@ -109,6 +109,29 @@ supervisor (fast/small model, decides which agent acts next)
   scratch.
 - Each agent has exactly one job — do not combine research and
   answer-writing (or any two responsibilities) in a single agent/prompt.
+- **When to add an agent vs. when to add a tool.** The test is whether
+  the split changes anything *other than the tool list*:
+
+  | Split into a new agent when | Keep it as a tool when |
+  |---|---|
+  | the loop shape differs (arXiv: search → read abstract → judge → fetch) | only the data source differs |
+  | the evidence/confidence signal differs | it is the same question asked of a different vendor |
+  | the model differs (coder vs. general) | you are only trying to shorten a tool list |
+  | the prompt needs genuinely different instructions | |
+
+  So `search_azure_docs` and `search_aws_docs` are two tools on one
+  agent, not two agents: same model, same loop, same evidence signal
+  ("did the doc fetch return real content"), only the endpoint differs.
+  Splitting them would move the decision from "which of N tools" up to
+  "which of N agents" — both made by a ~3B model, so nothing is won, and
+  a handoff is added.
+- **Cross-domain questions are the concrete reason.** "How would I move
+  data from Kinesis to Event Hubs?" spans two clouds. One agent holding
+  both tools answers it in one handoff with two tool calls. Two
+  domain-split agents need two handoffs plus a synthesis node to merge
+  them — and that node would be both researching and writing, which the
+  one-job rule forbids. Cross-domain is normal for data engineering, so
+  this is the common case, not the edge case.
 - **Coherent stack, deliberately**: tools are built with LangChain,
   orchestration with LangGraph (`langgraph-supervisor` is built on
   LangGraph). Don't introduce a second, incompatible orchestration
@@ -362,9 +385,10 @@ resume bullet competing in search results. The actual mechanism:
   (`@tool` decorator / `Tool` class — same pattern as the GAIA
   project's `tools/` package), scoped to this project's actual
   requirements. This is the default construction method for every tool.
-- `langchain-mcp-adapters` is used only if/when this project connects
-  to an actual external MCP server later — it is not the default way
-  tools get built here.
+- `langchain-mcp-adapters` is **now in use** — see External
+  documentation sources below. It is still not the default way tools get
+  built: every tool this project owns is hand-written. The adapter is
+  only how tools belonging to *someone else's* MCP server get bound.
 - Filesystem, git, shell execution tools for `coding_agent` — see
   **Safety boundaries** below, non-negotiable for these specifically.
   Also gets a **`validate_code` tool** (see Tooling stack) that lints
@@ -378,6 +402,67 @@ resume bullet competing in search results. The actual mechanism:
 - RAG tools for `docs_agent` — one tool per collection (`search_notes`,
   `search_resume`), so the model's tool choice signals which collection
   to search.
+
+### External documentation sources (`research_agent`)
+
+Driven by the interview-prep use case: a ~3B model is not a trustworthy
+source for senior-level PySpark/Kafka/cloud detail. It produces fluent,
+structurally correct, *specifically wrong* answers — wrong defaults,
+wrong config names, behaviour from three versions ago. Nothing fails,
+so nothing is noticeable. Grounding these questions in official docs is
+the fix, and it costs no local RAM: every source below is a network call,
+not another model.
+
+**Via MCP** (`langchain-mcp-adapters`, `MultiServerMCPClient`):
+
+| Server | Transport | Tools exposed | Auth | Covers |
+|---|---|---|---|---|
+| Microsoft Learn (`learn.microsoft.com/api/mcp`) | `streamable_http`, remote | ~1-2 | none | Azure (ADF, Synapse, Event Hubs), .NET, M365 |
+| Context7 (Upstash) | hosted HTTP or npm/stdio | 2 (`resolve-library-id`, `get-library-docs`) | key for hosted | version-pinned library docs — PySpark, pandas, boto3, kafka-python |
+| AWS Documentation (`awslabs`) | **stdio** — `uvx awslabs.aws-documentation-mcp-server@latest` | **6** | none | Glue, EMR, Kinesis, Redshift, all AWS docs |
+
+**Via plain REST** (hand-written `@tool`, no adapter — these are ordinary
+HTTP APIs, not MCP servers):
+
+| Source | Auth | Covers |
+|---|---|---|
+| Stack Exchange API (`site=stackoverflow`) | none at low volume | "why does X behave like Y" — real failure modes, not marketing docs |
+| GitHub REST (code search) | token needed for usable rate limits | how real pipeline code is actually written; reading OSS internals |
+
+**Hard requirement — filter the tool list before binding.** Those three
+MCP servers expose ~10 tools between them, and `get_tools()` returns a
+flat list. Bound unfiltered onto `research_agent`'s existing two, a ~3B
+model will not route reliably — this is the `wikipedia_search`-never-
+chosen failure from the GAIA build, at four times the scale. Keep ~2
+tools per server:
+
+```python
+tools = await client.get_tools()
+tools = [t for t in tools if t.name in KEEP]
+```
+
+- **Every MCP/REST result is wrapped in `Observation`** via `fetched()`,
+  like any other tool. An MCP server returning an empty result set is
+  precisely the plausible-looking failure `looks_empty()` exists to
+  catch — the adapter gives back raw content and will not flag it.
+- **Tool descriptions are rewritten, not inherited.** Adapter-supplied
+  descriptions are written for large frontier models. Name by domain
+  (`search_azure_docs`, not `mslearn`), and say when *not* to use it.
+  This is the single biggest lever on whether a small model routes
+  correctly.
+- **`MultiServerMCPClient.get_tools()` is async**, so the graph is
+  invoked with `.ainvoke()` and the REPL uses `prompt_async()`. Contained
+  change, but a real one.
+- **Order of adoption:** Microsoft Learn first — remote, no auth, no
+  subprocess, smallest possible proof that adapters + async + the
+  `Observation` wrapper all work. Then Context7, then AWS (filtered).
+  All of it lands *after* the step-2 routing checkpoint: if the
+  supervisor cannot route two agents reliably, more sources hide that
+  rather than fix it.
+- **Not adopted** (considered, deliberately deferred): GitHub's official
+  MCP server (many tools, token required), Hugging Face MCP (marginal
+  for data engineering), arXiv (would be its own agent — different loop
+  shape and evidence signal, see Architecture).
 
 ## Safety boundaries — `coding_agent` (hard requirement, not optional)
 
@@ -435,6 +520,8 @@ implicit.
 | Vector DB | Chroma | |
 | Document parsing | `pypdf` (PDF), `python-docx` (DOCX), plain read (MD) | lightweight, per-format — not the heavier `unstructured` package unless these prove insufficient |
 | Web search | Tavily (`TAVILY_API_KEY`) | see Tool supply for rationale |
+| External docs (MCP) | `langchain-mcp-adapters` (`MultiServerMCPClient`) → Microsoft Learn, Context7, AWS Documentation | tool list filtered to ~2 per server before binding; async; see Tool supply |
+| External docs (REST) | Stack Exchange API, GitHub REST code search | hand-written `@tool`, not MCP |
 | Observability | Langfuse (self-hosted, Docker) | `CallbackHandler` on the graph; `/stats` reads back via Langfuse's API — see Observability section |
 | Testing | `pytest` — component tests (mocked, default) + live dependency smoke tests (`@pytest.mark.live`, opt-in via `pytest -m live`) | see Testing section |
 | Linting + formatting | `ruff` (both — not paired with Black, to avoid two tools disagreeing on style) | |

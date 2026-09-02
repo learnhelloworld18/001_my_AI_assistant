@@ -27,4 +27,5 @@ docker compose -f docker-compose.langfuse.yml down -v        # stop, DELETE data
 8.  Write config.py
 9.  Write main.py
 10. Created langfuse_client.py
-11.
+11. Added state.py
+12.
