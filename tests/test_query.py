@@ -140,3 +140,83 @@ def test_an_empty_collection_stays_low(fake):
 def test_the_default_threshold_comes_from_config(notes, fake):
     """One place to tune it once real numbers exist."""
     assert _search(fake).metrics["threshold"] == config.RAG_RELEVANCE_THRESHOLD
+
+
+# --- cross-role search ---
+
+
+def test_cross_role_search_says_when_it_is_unconfigured(monkeypatch, fake):
+    """Unconfigured and "nothing matched" are different problems, and only one
+    of them is fixed by editing .env."""
+    monkeypatch.setattr(config, "CAREER_ROLES", ())
+    obs = query.search_across_roles("walk me through my career", embedding_function=fake)
+    assert not obs.ok
+    assert "CAREER_ROLES" in obs.detail
+
+
+def test_cross_role_search_covers_every_role(monkeypatch, fake):
+    """The whole point: no role can be silently missing from the answer."""
+    monkeypatch.setattr(config, "CAREER_ROLES", (("Alpha", ("alpha",)), ("Beta", ("beta",))))
+    col = store.get(store.Collection.RESUME_INTERVIEW, embedding_function=fake)
+    col.add_documents(
+        [
+            Document(
+                page_content="Broadcast joins at Alpha.",
+                metadata={"source": "/a.md", "name": "a.md", "role": "Alpha"},
+            ),
+            Document(
+                page_content="Kafka partitions at Beta.",
+                metadata={"source": "/b.md", "name": "b.md", "role": "Beta"},
+            ),
+        ]
+    )
+    obs = query.search_across_roles("broadcast join", embedding_function=fake, threshold=-1.0)
+    assert obs.ok
+    assert "## Alpha" in obs.content
+    assert "## Beta" in obs.content
+    assert obs.metrics["roles_covered"] == 2
+
+
+def test_roles_appear_in_configured_priority_order(monkeypatch, fake):
+    """Most important first, so a truncated answer loses the least."""
+    monkeypatch.setattr(config, "CAREER_ROLES", (("Alpha", ("alpha",)), ("Beta", ("beta",))))
+    col = store.get(store.Collection.RESUME_INTERVIEW, embedding_function=fake)
+    col.add_documents(
+        [
+            Document(
+                page_content="spark at Alpha",
+                metadata={"source": "/a.md", "name": "a.md", "role": "Alpha"},
+            ),
+            Document(
+                page_content="spark at Beta",
+                metadata={"source": "/b.md", "name": "b.md", "role": "Beta"},
+            ),
+        ]
+    )
+    content = query.search_across_roles("spark", embedding_function=fake, threshold=-1.0).content
+    assert content.index("## Alpha") < content.index("## Beta")
+
+
+def test_an_empty_role_is_named_rather_than_dropped(monkeypatch, fake):
+    """An empty section is information; its absence looks like an omission."""
+    monkeypatch.setattr(config, "CAREER_ROLES", (("Alpha", ("alpha",)), ("Gamma", ("gamma",))))
+    col = store.get(store.Collection.RESUME_INTERVIEW, embedding_function=fake)
+    col.add_documents(
+        [
+            Document(
+                page_content="spark at Alpha",
+                metadata={"source": "/a.md", "name": "a.md", "role": "Alpha"},
+            ),
+        ]
+    )
+    content = query.search_across_roles("spark", embedding_function=fake, threshold=-1.0).content
+    assert "## Gamma" in content
+    assert "nothing on file" in content
+
+
+def test_roles_parse_from_the_environment_format():
+    assert config._parse_roles("Company A:acme|acmecorp, Company B") == (
+        ("Company A", ("acme", "acmecorp")),
+        ("Company B", ("companyb",)),
+    )
+    assert config._parse_roles("") == ()

@@ -105,23 +105,54 @@ SELF_REPORT_ENABLED = os.environ.get("SELF_REPORT_ENABLED", "").lower() in ("1",
 # Below this, a retrieved chunk is treated as "my notes do not really cover
 # this" rather than as an answer.
 #
-# Measured against the real resume_interview collection (63 files, 1849
-# chunks), not guessed:
-#   0.67  "tell me about the EMR to Glue migration"
-#   0.58  "what is my experience with Azure Data Factory?"
-#   0.57  "what did I do at Capital One?"
-#   0.54  "describe a time I handled a production incident"
-#   0.50  "what did I do at Michelin?"
-#   ----  the gap
-#   0.24  "what is the capital of France?"
-#   0.24  "how do I bake sourdough bread?"
-# Set near the middle of that gap rather than at either edge, so neither a
-# slightly weak real question nor a slightly lucky off-topic one flips it.
+# Measured against a real 63-file, 1849-chunk collection rather than guessed.
+# Genuine questions about the owner's own work scored 0.50-0.67; clearly
+# off-topic ones (a capital city, a bread recipe) scored 0.24. Set near the
+# middle of that gap, so neither a slightly weak real question nor a slightly
+# lucky off-topic one flips it.
 RAG_RELEVANCE_THRESHOLD = 0.37
 
 # How many chunks to retrieve. Low on purpose: a 3B context window filled with
 # eight marginal chunks answers worse than one filled with three good ones.
 RAG_TOP_K = 4
+
+
+def _parse_roles(raw: str) -> tuple[tuple[str, tuple[str, ...]], ...]:
+    """Parse CAREER_ROLES from the environment.
+
+    Format: "Label:fragment|fragment, Label:fragment" - the label is shown to
+    the user, the fragments are matched against file paths (lower-cased, with
+    separators stripped) to decide which role a document belongs to. Omit the
+    fragments and the label itself is used.
+    """
+    roles: list[tuple[str, tuple[str, ...]]] = []
+    for entry in raw.split(","):
+        label, _, raw_fragments = entry.strip().partition(":")
+        label = label.strip()
+        if not label:
+            continue
+        fragments = tuple(f.strip().lower() for f in raw_fragments.split("|") if f.strip())
+        roles.append((label, fragments or (label.lower().replace(" ", ""),)))
+    return tuple(roles)
+
+
+# The owner's career roles, most important first - read from the environment,
+# never committed. This repo is public, and while employment history is not a
+# secret it is personal: the same split already used for credentials, extended
+# from "secret" to "personal". The repo ships the mechanism; the machine
+# supplies the data.
+#
+# Unset means cross-role search has nothing to cover, and says so rather than
+# pretending. See .env.example for the format.
+CAREER_ROLES = _parse_roles(os.environ.get("CAREER_ROLES", ""))
+
+# Chunks per role for a cross-role question. Needed because plain top-k cannot
+# answer one: it ranks by similarity alone, so the best-matching document's
+# near-identical chunks crowd out every other source, and whole roles go
+# missing from a "walk me through my career" answer while the tier still reads
+# HIGH - it certifies retrieval quality, not coverage. Retrieving per role
+# turns that from a ranking problem into a coverage one.
+RAG_PER_ROLE_K = 2
 
 # --- Credentials ---
 

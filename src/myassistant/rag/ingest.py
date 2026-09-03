@@ -31,6 +31,7 @@ from typing import Any
 from langchain_core.documents import Document
 from langchain_text_splitters import RecursiveCharacterTextSplitter
 
+from myassistant import config
 from myassistant.rag import manifest, store
 
 log = logging.getLogger("myassistant")
@@ -47,22 +48,24 @@ SKIP_DIRS = {".git", "node_modules", ".venv", "venv", "__pycache__", ".idea", ".
 #   *_BACKUP_*  dated copies sitting beside the live document - ingesting both
 #               puts a stale and a current answer in retrieval together
 #   *Certified* certificates: a name, a date, and a lot of layout
-SKIP_PATTERNS = ("*_BACKUP_*", "*Certified*", "*certificate*")
+#   *Credential* / *authentication*  may hold real secrets, and a vector store
+#               is somewhere a model can quote from. coding_agent's denylist
+#               already forbids reading credential files; /ingest must not be a
+#               side door around it. Note gitleaks does not help - the store
+#               lives under ASSISTANT_HOME, outside the repo, so nothing scans
+#               it. Matched by pattern rather than by filename on purpose: this
+#               repo is public, and naming the files would advertise them.
+SKIP_PATTERNS = (
+    "*_BACKUP_*",
+    "*Certified*",
+    "*certificate*",
+    "*Credential*",
+    "*credential*",
+    "*authentication*",
+)
 
 # Exact names to skip - instructions for other tools, not personal content.
-#
-# The last two are skipped for a different reason: their names suggest they may
-# hold real credentials, and a vector store is somewhere a model can quote from.
-# coding_agent's denylist already forbids reading credential files; /ingest must
-# not be a side door around it. Note gitleaks does not help here - the store
-# lives under ASSISTANT_HOME, outside the repo, so nothing scans it.
-SKIP_NAMES = {
-    "CLAUDE.md",
-    "README.md",
-    "ASUtranscript.pdf",
-    "Data Infrastructure 2022 – Credentials and IDs.pdf",
-    "Google Services authentication.pdf",
-}
+SKIP_NAMES = {"CLAUDE.md", "README.md"}
 
 # Small enough that a retrieved chunk leaves room for the question and the
 # answer in a 3B context window; overlapped so a fact split across a boundary
@@ -161,16 +164,41 @@ def load(path: Path) -> str:
     return path.read_text(encoding="utf-8", errors="replace")
 
 
+def role_of(path: Path) -> str | None:
+    """Which career role a file belongs to, from its path. None if it spans roles.
+
+    Inferred from the path rather than the contents: the folder layout already
+    encodes it - a per-employer subfolder, or an employer in the filename - and
+    reading it from the path costs nothing at ingest time.
+
+    A None here is meaningful, not a failure - resumes, cover letters and the
+    general experience notes deliberately span every role, and tagging them with
+    one would be wrong.
+    """
+    blob = "".join(c for c in str(path).lower() if c.isalnum())
+    for label, fragments in config.CAREER_ROLES:
+        if any(fragment in blob for fragment in fragments):
+            return label
+    return None
+
+
 def chunk(text: str, source: Path) -> list[Document]:
     """Split into overlapping chunks, each tagged with the file it came from.
 
     The `source` metadata is load-bearing twice over: it is how drop_source()
     finds a file's old chunks on re-ingest, and it is how an answer can say
-    which document it came from.
+    which document it came from. `role` is what makes guaranteed-coverage
+    retrieval possible - see rag.query.search_across_roles.
     """
     splitter = RecursiveCharacterTextSplitter(chunk_size=CHUNK_SIZE, chunk_overlap=CHUNK_OVERLAP)
+    # Chroma rejects None in metadata, so an unlabelled file gets a real value
+    # rather than a missing key - and "" is filterable in a way None is not.
+    role = role_of(source) or ""
     return [
-        Document(page_content=piece, metadata={"source": str(source), "name": source.name})
+        Document(
+            page_content=piece,
+            metadata={"source": str(source), "name": source.name, "role": role},
+        )
         for piece in splitter.split_text(text)
     ]
 

@@ -242,20 +242,29 @@ slowly, and against a live model. Fixed with an autouse fixture that
 stubs the graph and the Langfuse client. Lesson: when a leaf function
 starts reaching outside the process, every test above it does too.
 
-## Cross-company questions retrieve too narrowly
+## Cross-role questions retrieve too narrowly — solved by knowing the roles
 
-"Walk me through my career" returned 4 chunks from 3 files, missing
-Capital One and Michelin. Top-k ranks by similarity alone, so the
-best-matching document's near-identical chunks crowd out other sources.
-The tier still said HIGH: it certifies retrieval *quality*, not
-*coverage*, so the answer is confidently incomplete.
+"Walk me through my career" returned 4 chunks from 3 files and omitted
+two employers. Top-k ranks by similarity alone, so the best-matching
+document's near-identical chunks crowd out other sources. The tier still
+said HIGH: it certifies retrieval *quality*, not *coverage*.
 
-Fix chosen (not yet built): fetch ~12 scored candidates, keep at most 2
-per source file. Preserves the score the tier needs — unlike MMR, which
-returns no scores.
+Restructuring storage does not fix it. Measured: the cross-role documents
+are 10k-125k characters, so no chunking scheme returns "your whole
+career" into a 3B context, and a collection per employer would turn one
+retrieval into N plus a routing decision — harder for a small model, not
+easier.
 
-Not a complete fix. Five employers do not fit in six chunks. A one-page
-prose career summary would retrieve as a single strong match.
+What does fix it is knowing the roles up front. Chunks are tagged with a
+`role` at ingest (inferred from the path, which already encodes it), and
+`search_across_roles` runs one filtered search per role. Coverage becomes
+structural rather than hoped for, and roles are returned in configured
+priority order so a truncated answer loses the least.
+
+The roles themselves live in `.env`, not in the repo. Employment history
+is not secret, but it is personal, and this repo is public — the same
+split already used for credentials, extended from "secret" to "personal".
+The repo ships the mechanism; the machine supplies the data.
 
 ## Safety — added entirely, wasn't in the original design
 

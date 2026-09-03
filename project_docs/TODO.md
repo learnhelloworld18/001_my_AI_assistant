@@ -65,9 +65,14 @@ of the design, not an afterthought.
   case argues yes — grounding technical answers matters more than code
   tools. Not yet decided.
 
-- **Per-source cap in `rag/query.py`** — fetch ~12 scored candidates, keep
-  at most 2 per source file. Cross-company questions currently retrieve
-  4 chunks from 3 files and silently omit employers; see DESIGN_DECISIONS.
+- **Genericise remaining personal examples** in `query.py` and
+  `docs_agent.py` docstrings, and in `PROJECT_REQUIREMENTS.md`. The data
+  itself now lives in `.env`, but a few illustrative strings still name
+  real employers and files. Cosmetic; the repo is public.
+- **A one-page prose career summary** in the documents folder. Prose
+  written the way a question would be asked out-retrieves any amount of
+  raw material — the same conclusion reached about the cloned repo and
+  the binary attachments.
 
 ## Considered, not done
 

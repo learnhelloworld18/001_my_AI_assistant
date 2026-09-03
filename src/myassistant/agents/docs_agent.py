@@ -29,7 +29,7 @@ from langgraph.prebuilt import create_react_agent
 
 from myassistant import config
 from myassistant.state import AssistantState, tier_from_observations
-from myassistant.tools.search_notes import search_notes, search_resume
+from myassistant.tools.search_notes import search_experience, search_notes, search_resume
 
 NAME = "docs_agent"
 
@@ -37,9 +37,12 @@ RECURSION_LIMIT = 2 * config.MAX_TOOL_STEPS + 2
 
 PROMPT = """You answer questions from the user's own saved documents.
 
-Two places to look:
-- search_resume: their CV, interview prep, STAR answers, work history. \
-Anything about what THEY did.
+Three places to look:
+- search_resume: one company or one project - their CV, interview prep, STAR \
+answers. Most detail.
+- search_experience: their whole career across every role. Use for "walk me \
+through my career", "tell me about yourself", or any question spanning more \
+than one job.
 - search_notes: their technical notes and reference material.
 
 How to work:
@@ -75,7 +78,7 @@ def build(model: Any | None = None, tools: list[Any] | None = None) -> Any:
     """Compile the agent. `model`/`tools` injectable so tests skip Ollama."""
     agent = create_react_agent(
         model or _model(),
-        tools if tools is not None else [search_resume, search_notes],
+        tools if tools is not None else [search_resume, search_experience, search_notes],
         prompt=PROMPT,
         state_schema=AssistantState,
         name=NAME,

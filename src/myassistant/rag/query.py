@@ -44,6 +44,87 @@ def _format(hits: list[tuple[Document, float]]) -> str:
     )
 
 
+def search_across_roles(
+    question: str,
+    *,
+    per_role_k: int | None = None,
+    threshold: float | None = None,
+    embedding_function: Any | None = None,
+) -> Observation:
+    """Retrieve for every career role, so a cross-role answer cannot omit one.
+
+    Plain top-k ranks by similarity alone, so the best-matching document's
+    near-identical chunks crowd out every other source: "walk me through my
+    career" came back with four chunks from three files and no mention of two
+    employers - while still scoring HIGH, because the tier certifies retrieval
+    quality, not coverage.
+
+    One filtered search per role fixes that by construction. Roles are returned
+    in config order, most important first, so the answer leads with the most
+    recent work and a truncated answer loses the least.
+
+    A role with nothing to say is reported rather than skipped silently: an
+    empty section is information, and its absence would look like an omission.
+    """
+    if not config.CAREER_ROLES:
+        # Saying so beats returning nothing: the feature is unconfigured, which
+        # is a different problem from "no documents match", and only one of the
+        # two is fixed by editing .env.
+        return failed(
+            "no career roles are configured - set CAREER_ROLES in .env to search "
+            "across roles (see .env.example)",
+            source=str(Collection.RESUME_INTERVIEW),
+            kind="notes",
+            n_results=0,
+        )
+
+    per_role_k = per_role_k or config.RAG_PER_ROLE_K
+    threshold = config.RAG_RELEVANCE_THRESHOLD if threshold is None else threshold
+    store = get(Collection.RESUME_INTERVIEW, embedding_function=embedding_function)
+
+    sections: list[str] = []
+    scores: list[float] = []
+    covered: list[str] = []
+    for label, _ in config.CAREER_ROLES:
+        try:
+            hits = store.similarity_search_with_relevance_scores(
+                question, k=per_role_k, filter={"role": label}
+            )
+        except Exception as e:  # noqa: BLE001 - one bad role must not lose the rest
+            sections.append(f"## {label}\n(could not search: {e})")
+            continue
+        if not hits:
+            sections.append(f"## {label}\n(nothing on file for this role)")
+            continue
+        covered.append(label)
+        scores.append(max(score for _, score in hits))
+        sections.append(f"## {label}\n{_format(hits)}")
+
+    if not covered:
+        return failed(
+            "nothing on file for any role - has the resume collection been ingested?",
+            source=str(Collection.RESUME_INTERVIEW),
+            kind="notes",
+            n_results=0,
+        )
+
+    top = max(scores)
+    return Observation(
+        # Coverage is the point here, so ok reflects whether the best role
+        # cleared the bar - a thin role is visible in the text either way.
+        ok=top >= threshold,
+        detail=f"experience across {len(covered)} roles: {', '.join(covered)}",
+        content="\n\n".join(sections),
+        source=str(Collection.RESUME_INTERVIEW),
+        metrics={
+            "kind": "notes",
+            "roles_covered": len(covered),
+            "top_score": round(top, 3),
+            "threshold": threshold,
+        },
+    )
+
+
 def search(
     collection: Collection,
     question: str,

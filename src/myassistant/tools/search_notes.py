@@ -18,7 +18,7 @@ from typing import Annotated
 from langchain_core.tools import InjectedToolCallId, tool
 from langgraph.types import Command
 
-from myassistant.rag.query import search
+from myassistant.rag.query import search, search_across_roles
 from myassistant.rag.store import Collection
 from myassistant.tools.observation import emit
 
@@ -39,6 +39,24 @@ def search_notes(query: str, tool_call_id: Annotated[str, InjectedToolCallId]) -
         query: what to look for, in plain words
     """
     return emit(search(Collection.TECH_NOTES, query), tool_call_id)
+
+
+@tool
+def search_experience(query: str, tool_call_id: Annotated[str, InjectedToolCallId]) -> Command:
+    """Summarise the user's experience across ALL of their data engineering roles.
+
+    Use for any question spanning more than one job: "walk me through my
+    career", "what's my experience with X across roles", "summarise my
+    background", "tell me about yourself". Searches each role separately so no
+    employer is left out, and returns them most recent first.
+
+    For a question about one specific company, use search_resume instead - it
+    will find more detail.
+
+    Args:
+        query: what to look for, in plain words
+    """
+    return emit(search_across_roles(query), tool_call_id)
 
 
 @tool
