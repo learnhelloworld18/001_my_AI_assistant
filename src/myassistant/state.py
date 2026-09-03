@@ -95,25 +95,33 @@ class AssistantState(TypedDict, total=False):
     revisions: int  # critic retries used, against CRITIC_MAX_REVISIONS
 
 
+# Tools whose success does not amount to real grounding. Only one so far:
+# a web_search hit is a claim *about* a page, not the page, and the spec is
+# explicit that snippets-only is the LOW tier. Everything else that reports
+# ok=True has already judged its own evidence sufficient - visit_webpage
+# checked the page had a body, rag.query checked the relevance score cleared
+# its threshold - so the gate can trust that flag rather than re-deriving it.
+WEAK_KINDS = frozenset({"search"})
+
+
 def tier_from_observations(observations: list[Observation]) -> ConfidenceTier:
-    """research_agent's evidence gate: was a real page actually read?
+    """The evidence gate: did any tool return real, sufficient grounding?
 
-    HIGH requires an ok observation tagged kind="page" - i.e. visit_webpage (or
-    a docs tool) came back with real content. A successful web_search is *not*
-    enough: a snippet is a claim about a page, not the page, and the spec is
-    explicit that snippets-only is the LOW tier. That distinction is the whole
-    reason tools tag their observations with a kind.
+    HIGH needs one ok observation whose kind is not weak. That single rule
+    covers every agent, because each tool encodes its own standard in `ok`:
 
-    docs_agent (RAG score threshold) and coding_agent (validate_code passed)
-    read their own signals out of Observation.metrics - same evidence,
-    different question.
+      visit_webpage  ok when the page had a real body, not a redirect shell
+      web_search     ok, but kind="search" - never enough on its own
+      rag.query      ok when the top relevance score cleared the threshold
+
+    coding_agent will add validate_code the same way, ok when the linter passed.
 
     Deliberately reads Observation.ok rather than asking the model whether it
     succeeded: the model can only notice a failure that is visible in the
     observation text, and this exists to catch the ones that are not.
     """
-    read_a_page = any(o.ok and o.metrics.get("kind") == "page" for o in observations)
-    return ConfidenceTier.HIGH if read_a_page else ConfidenceTier.LOW
+    grounded = any(o.ok and o.metrics.get("kind") not in WEAK_KINDS for o in observations)
+    return ConfidenceTier.HIGH if grounded else ConfidenceTier.LOW
 
 
 def render_evidence(observations: list[Observation]) -> str:

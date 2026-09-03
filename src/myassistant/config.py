@@ -100,6 +100,18 @@ CRITIC_MAX_REVISIONS = 1
 # a claim to anyone, and it exists to test the rule rather than assume it.
 SELF_REPORT_ENABLED = os.environ.get("SELF_REPORT_ENABLED", "").lower() in ("1", "true", "yes")
 
+# --- RAG ---
+
+# Below this, a retrieved chunk is treated as "my notes do not really cover
+# this" rather than as an answer. Provisional: measured 0.544 for a genuine
+# match and 0.033 for an unrelated one on a two-document probe, so the gap is
+# wide - but the number should be revisited against a real collection.
+RAG_RELEVANCE_THRESHOLD = 0.3
+
+# How many chunks to retrieve. Low on purpose: a 3B context window filled with
+# eight marginal chunks answers worse than one filled with three good ones.
+RAG_TOP_K = 4
+
 # --- Credentials ---
 
 # .env.example ships placeholders, and a placeholder is a non-empty string - so
