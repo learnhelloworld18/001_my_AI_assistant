@@ -5,9 +5,14 @@
        v
     gate      deterministic: was a real file actually read?
 
-The only agent using the 7B coder model, and the only one whose tools touch
-real state - which is why tools/safety.py exists and why this agent is the last
-one built rather than the first.
+The only agent whose tools touch real state - which is why tools/safety.py
+exists and why this agent is the last one built rather than the first.
+
+It does *not* run the coder model, which was the whole point of choosing one.
+qwen2.5-coder:7b emits its tool calls as plain text instead of structured
+calls, 0 times out of 4, so LangGraph never executes them and the agent tells
+the user it cannot read files. A model that cannot call a tool cannot be a
+tool-calling agent, whatever it knows about code.
 
 **What it can and cannot do, deliberately.** It reads files and lists them. It
 does not yet write files or run commands, even though tools/coding.py has the
@@ -52,11 +57,16 @@ so are credential files - that is a boundary, not an error to work around. If \
 a read is refused, say so; do not try another path to get at the same file.
 - When you write code, write it in a fenced block and say which file it belongs \
 in. You cannot create or modify files yet, so do not claim to have done so.
-- If a file is truncated, say which part you saw."""
+- If a file is truncated, say which part you saw.
+- Answer directly. Do not narrate: no "it seems a request was transferred", no \
+"let us proceed by". Your context contains handoff bookkeeping - ignore it, it \
+is plumbing, not part of the conversation."""
 
 
 def _model() -> ChatOllama:
-    """The coder model - the one place a 7B is worth its memory."""
+    """Not the coder model. See config.CODING_MODEL for why: qwen2.5-coder
+    emits its tool calls as text rather than as structured calls, so an agent
+    built on it cannot actually read anything."""
     return ChatOllama(
         model=config.CODING_MODEL,
         base_url=config.OLLAMA_HOST,

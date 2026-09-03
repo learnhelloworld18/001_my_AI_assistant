@@ -56,7 +56,14 @@ OLLAMA_HOST = os.environ.get("OLLAMA_HOST", "http://localhost:11434")
 # supervisor -> research hop is no longer a model swap.
 SUPERVISOR_MODEL = os.environ.get("SUPERVISOR_MODEL", "qwen2.5:3b-instruct")
 RESEARCH_MODEL = os.environ.get("RESEARCH_MODEL", "qwen2.5:3b-instruct")
-CODING_MODEL = os.environ.get("CODING_MODEL", "qwen2.5-coder:7b-instruct-q4_K_M")
+# Was qwen2.5-coder:7b-instruct-q4_K_M, and that was the obvious choice - a
+# coder-tuned model for the coding agent. It does not work here. Ollama reports
+# the tag as tools-capable, but the model emits its tool call as plain text
+# ('{"name": "read_project_file", "arguments": {...}}') instead of a structured
+# call, 0 times out of 4, so LangGraph never executes it and the agent tells the
+# user it cannot read files. A model that cannot call a tool cannot be a
+# tool-calling agent, whatever it knows about code.
+CODING_MODEL = os.environ.get("CODING_MODEL", "qwen2.5:3b-instruct")
 EMBED_MODEL = os.environ.get("EMBED_MODEL", "nomic-embed-text")  # embeddings, not chat
 
 # general_agent reuses the supervisor's model rather than loading a third one.
