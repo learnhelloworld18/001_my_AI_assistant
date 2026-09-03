@@ -49,8 +49,13 @@ the pages themselves - never answer from snippets alone.
 different URL from the search results rather than guessing at its contents.
 - You have very few steps. Prefer one good page over three skimmed ones.
 
-Answer in plain prose. State what you actually found, and if the pages did not \
-cover something, say so rather than filling the gap from memory."""
+Answer the question directly, in plain prose. Do not narrate: no "the research \
+agent has been asked", no "here is what we found", no referring to yourself in \
+the third person. Your context contains handoff bookkeeping - ignore it, it is \
+plumbing, not part of the conversation. Start with the answer itself.
+
+State what you actually found, and if the pages did not cover something, say so \
+rather than filling the gap from memory."""
 
 
 def _model() -> ChatOllama:

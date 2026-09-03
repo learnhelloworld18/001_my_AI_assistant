@@ -32,3 +32,6 @@ docker compose -f docker-compose.langfuse.yml down -v        # stop, DELETE data
 13. Agent - research_ageny.py
 14. Added general_agent.py -- before writing the supervisor, we need atleast 2 agents to test routing. It is the cheapest agent we have: a model, a prompt, no tools, no new dependencies, and its confidence tier is a constant (UNGROUNDED). The other two agents - coding_agent and docs_agent are blocked by other dependencies like tools/safety.py and RAG pipeline (chromadb and langchain-chroma), respectively
 15. Added supervisor.py
+16. Added streaming (continuous streaming output in the terminal when application is processing instructions)
+17. Fix the supervisor talking twice - Root-level updates are the right signal; they fire exactly on subgraph completion
+18.

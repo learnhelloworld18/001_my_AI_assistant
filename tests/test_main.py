@@ -22,12 +22,12 @@ class _StubGraph:
     the final root state under mode "values".
     """
 
-    def __init__(self, text="a reply", tier=None, tokens=True, status=True):
+    def __init__(self, text="a reply", tier=None, tokens=True, status=True, chatter=None):
         self.text, self.tier, self.seen = text, tier, None
-        self.tokens, self.status = tokens, status
+        self.tokens, self.status, self.chatter = tokens, status, chatter
 
     def _final(self, state):
-        out = {"messages": [*state["messages"], AIMessage(content=self.text)]}
+        out = {"messages": [*state["messages"], AIMessage(content=self.text, name="general_agent")]}
         if self.tier is not None:
             out["confidence"] = self.tier
         return out
@@ -47,9 +47,13 @@ class _StubGraph:
                 ],
             )
             yield (("supervisor:1",), "updates", {"agent": {"messages": [handoff]}})
+        if self.chatter:  # the supervisor narrating before the agent runs
+            yield (("supervisor:1",), "messages", (AIMessageChunk(content=self.chatter), {}))
         if self.tokens:
             for word in self.text.split(" "):
-                yield ((), "messages", (AIMessageChunk(content=word + " "), {}))
+                yield (("general_agent:1",), "messages", (AIMessageChunk(content=word + " "), {}))
+        if self.chatter:  # and paraphrasing after it
+            yield (("supervisor:1",), "messages", (AIMessageChunk(content=self.chatter), {}))
         yield ((), "values", self._final(state))
 
 
@@ -196,6 +200,83 @@ def test_history_stores_the_answer_without_the_tag(session, monkeypatch):
     assert "thin evidence" not in str(session.history[-1].content)
 
 
+def test_supervisor_commentary_is_not_shown(session, monkeypatch, capsys):
+    """It narrates before handing off and paraphrases after - neither is the answer."""
+    graph = _StubGraph(text="the real answer", chatter="Let me look that up for you.")
+    monkeypatch.setattr(main, "_supervisor", lambda: graph)
+    main.run_turn("hello", session)
+    out = capsys.readouterr().out
+    assert "the real answer" in out
+    assert "Let me look that up" not in out
+
+
+def test_supervisor_commentary_is_kept_out_of_history(session, monkeypatch):
+    graph = _StubGraph(text="the real answer", chatter="Let me look that up for you.")
+    monkeypatch.setattr(main, "_supervisor", lambda: graph)
+    main.run_turn("hello", session)
+    assert str(session.history[-1].content) == "the real answer"
+
+
+def test_the_speaker_is_read_from_the_namespace():
+    """The uuid changes per invocation, so the name before the colon is identity."""
+    assert main._speaker(("research_agent:abc",)) == "research_agent"
+    assert main._speaker(("general_agent:def",)) == "general_agent"
+    assert main._speaker(("supervisor:abc",)) is None
+    assert main._speaker(()) is None
+
+
+def test_a_re_route_to_the_same_agent_is_not_printed_twice(session, monkeypatch, capsys):
+    """A 3B supervisor routinely asks the same agent the same thing twice."""
+
+    class _Looping(_StubGraph):
+        def stream(self, state, config=None, **kwargs):
+            self.seen = state
+            handoff = AIMessage(
+                content="",
+                tool_calls=[
+                    {
+                        "name": "transfer_to_research_agent",
+                        "args": {},
+                        "id": "h1",
+                        "type": "tool_call",
+                    }
+                ],
+            )
+            for _ in range(2):  # supervisor routes to the same agent twice
+                yield (("supervisor:1",), "updates", {"agent": {"messages": [handoff]}})
+                yield (("research_agent:1",), "messages", (AIMessageChunk(content="ANSWER"), {}))
+                yield ((), "updates", {"research_agent": {}})  # subgraph completed
+            yield ((), "values", self._final(state))
+
+    monkeypatch.setattr(main, "_supervisor", lambda: _Looping(text="ANSWER"))
+    main.run_turn("hello", session)
+    out = capsys.readouterr().out
+    assert out.count("ANSWER") == 1
+    # and the re-route leaves no stray status line behind either
+    assert out.count("· research_agent") == 1
+
+
+def test_the_supervisor_name_matches_the_supervisor_module():
+    """SUPERVISOR_NAME is duplicated to keep REPL startup light - keep it honest."""
+    from myassistant import supervisor
+
+    assert main.SUPERVISOR_NAME == supervisor.NAME
+
+
+def test_the_fallback_prefers_the_agents_answer():
+    """The supervisor's closing paraphrase is a summary of the answer, not it."""
+    messages = [
+        AIMessage(content="the real answer", name="research_agent"),
+        AIMessage(content="To summarise what the agent found...", name="supervisor"),
+    ]
+    assert main._final_text(messages) == "the real answer"
+
+
+def test_the_question_is_never_echoed_back_as_the_answer():
+    """A run where no agent spoke must not reply with the user's own words."""
+    assert main._final_text([HumanMessage(content="what is Iceberg?")]) == "(no answer produced)"
+
+
 def test_a_tool_call_is_announced_before_it_runs():
     """Announcing from the tool node would report a wait that already happened."""
     call = AIMessage(
@@ -230,6 +311,13 @@ def test_transferring_back_is_not_announced():
 def test_root_updates_are_never_announced():
     """They fire when a subgraph has already finished - always too late."""
     assert main._status((), {"research_agent": {}}) is None
+
+
+def test_root_updates_are_how_a_finished_agent_is_recognised():
+    """Too late to announce, exactly right to mark done."""
+    assert main._finished_agents((), {"research_agent": {}}) == ["research_agent"]
+    assert main._finished_agents((), {"supervisor": {}}) == []
+    assert main._finished_agents(("research_agent:1",), {"agent": {}}) == []
 
 
 def test_only_the_question_and_answer_are_kept(session, monkeypatch):
@@ -267,11 +355,14 @@ def test_the_tier_is_scored_to_langfuse(session, monkeypatch):
     assert scored == [(main.langfuse_client.CONFIDENCE_SCORE, "low")]
 
 
-def test_an_empty_answer_falls_back_rather_than_printing_nothing(session, monkeypatch, capsys):
-    """A blank answer would look like a hang."""
+def test_an_empty_answer_says_so_rather_than_printing_nothing(session, monkeypatch, capsys):
+    """A blank answer would look like a hang - and echoing the question back
+    would be worse, since it reads as if the assistant answered."""
     monkeypatch.setattr(main, "_supervisor", lambda: _StubGraph(text="   ", tokens=False))
     main.run_turn("hello", session)
-    assert "hello" in capsys.readouterr().out  # falls back to the last non-empty message
+    out = capsys.readouterr().out
+    assert "(no answer produced)" in out
+    assert "hello" not in out
 
 
 def test_failing_turn_is_caught_not_raised(session, monkeypatch, capsys):

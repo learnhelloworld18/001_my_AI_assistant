@@ -204,19 +204,67 @@ _TAGS = {
 }
 
 
-def _final_text(messages: list[BaseMessage]) -> str:
-    """The last message that actually said something.
+# Must match supervisor.NAME. Kept as a literal rather than imported, because
+# importing that module pulls in langgraph_supervisor and the Ollama client at
+# REPL startup; a test asserts the two stay in step.
+SUPERVISOR_NAME = "supervisor"
 
-    Deliberately not filtered down to the last *agent* message. The supervisor
-    currently adds a paraphrase of its own after an agent answers, which breaks
-    the one-job rule - left visible on purpose so it can be judged first-hand
-    before being designed around (see DESIGN_DECISIONS).
+
+def _speaker(namespace: tuple[str, ...]) -> str | None:
+    """Which agent produced this chunk, or None if it was the supervisor.
+
+    LangGraph tags every streamed chunk with the subgraph that produced it -
+    ('research_agent:<uuid>',) for an agent, ('supervisor:<uuid>',) or () for
+    the supervisor itself. The uuid changes per invocation, so the name before
+    the colon is the stable identity.
+
+    That tag does two jobs. It drops the supervisor's commentary - it narrates
+    before handing off and paraphrases afterwards - and it identifies repeats,
+    below.
     """
-    for message in reversed(messages):
-        text = str(message.content).strip()
-        if text:
-            return text
-    return "(no answer produced)"
+    if not namespace:
+        return None
+    name = namespace[0].split(":", 1)[0]
+    return None if name == SUPERVISOR_NAME else name
+
+
+def _final_text(messages: list[BaseMessage]) -> str:
+    """The last thing an *agent* said, falling back to the last message at all.
+
+    Prefers agent messages for the same reason the token stream does: the
+    supervisor's closing paraphrase is not the answer, it is a summary of one.
+    """
+    replies = [m for m in messages if isinstance(m, AIMessage) and str(m.content).strip()]
+    for message in reversed(replies):
+        if getattr(message, "name", None) not in (None, SUPERVISOR_NAME):
+            return str(message.content).strip()
+    # No agent spoke. Fall back to the supervisor's own words rather than to
+    # nothing - but never to a HumanMessage, which would echo the question back
+    # at the user as if it were the answer.
+    return str(replies[-1].content).strip() if replies else "(no answer produced)"
+
+
+def _tool_calls(update: dict[str, Any]) -> list[dict[str, Any]]:
+    """Every tool call in an update, flattened. Empty when there are none."""
+    calls: list[dict[str, Any]] = []
+    for payload in update.values():
+        for message in (payload or {}).get("messages", []) or []:
+            calls.extend(getattr(message, "tool_calls", None) or [])
+    return calls
+
+
+def _finished_agents(namespace: tuple[str, ...], update: dict[str, Any]) -> list[str]:
+    """Agents that just finished, from a root-level update.
+
+    Root updates are useless as progress lines because they fire only once a
+    subgraph has completed - which is exactly what makes them the right signal
+    for "this agent is done". Read here rather than from a
+    transfer_back_to_supervisor call, because those messages are switched off
+    (see supervisor.build) precisely so they do not leak into the answer.
+    """
+    if namespace:
+        return []
+    return [node for node in update if node != SUPERVISOR_NAME]
 
 
 def _status(namespace: tuple[str, ...], update: dict[str, Any]) -> str | None:
@@ -236,15 +284,13 @@ def _status(namespace: tuple[str, ...], update: dict[str, Any]) -> str | None:
     if not namespace:
         return None  # root updates are completion notices, always too late
 
-    for payload in update.values():
-        for message in (payload or {}).get("messages", []) or []:
-            for call in getattr(message, "tool_calls", None) or []:
-                name = call["name"]
-                if name.startswith("transfer_back"):
-                    return None  # returning to the supervisor is not news
-                if name.startswith("transfer_to_"):
-                    return f"· {name.removeprefix('transfer_to_')}"
-                return f"· {name}…"
+    for call in _tool_calls(update):
+        name = call["name"]
+        if name.startswith("transfer_back"):
+            return None  # returning to the supervisor is not news
+        if name.startswith("transfer_to_"):
+            return f"· {name.removeprefix('transfer_to_')}"
+        return f"· {name}…"
     return None
 
 
@@ -271,6 +317,19 @@ def answer(question: str, session: Session) -> str:
     final: dict[str, Any] = {}
     streamed: list[str] = []
     last_status: str | None = None
+    # Agents that have already answered this turn. A 3B supervisor routinely
+    # hands the same question to the same agent twice and prints the answer
+    # again; telling it not to in the prompt does not hold. Tracking by agent
+    # rather than blocking all repeats keeps genuine chains (research, then
+    # coding) working - those are different agents.
+    answered: set[str] = set()
+    speaking: str | None = None  # the agent whose prose is currently on screen
+    # Two separate things, conflated once and it cost an hour: `streamed` is
+    # everything printed this turn (and becomes the history entry), while
+    # `mid_block` only tracks whether a line is currently open, for spacing.
+    # Clearing the first for the second made the end-of-turn fallback think
+    # nothing had streamed, so it printed the whole answer a second time.
+    mid_block = False
 
     # subgraphs=True is what makes this stream at all: agents are compiled
     # subgraphs, and without it only node-level updates cross the boundary -
@@ -282,23 +341,52 @@ def answer(question: str, session: Session) -> str:
             if not namespace:  # root state only; subgraphs emit their own
                 final = chunk
         elif mode == "updates":
+            # Mark agents done as they complete, so a re-route to one that has
+            # already answered is caught before any repeated token is printed.
+            answered.update(_finished_agents(namespace, chunk))
             status = _status(namespace, chunk)
+
+            # Two suppressions, both about re-routing to an agent that is done.
+            # `answered` covers one that completed; `speaking` covers the common
+            # case - the supervisor tries to hand back to the agent that just
+            # finished talking, which would print a heading with nothing under
+            # it. Checked here rather than by marking on every update: internal
+            # updates arrive *during* streaming, so marking on those cut the
+            # answer off mid-sentence.
+            if status:
+                target = status.removeprefix("· ")
+                if target in answered or target == speaking:
+                    status = None
+
             if status and status != last_status:
-                if streamed:  # a tool call mid-answer: do not run text together
+                if mid_block:
+                    # Interrupted mid-answer by real new work (a tool call, a
+                    # different agent) - close the line and stop this agent from
+                    # repeating itself afterwards.
+                    if speaking and not status.endswith("…"):
+                        answered.add(speaking)
                     print()
-                    streamed.clear()
+                    mid_block = False
                 print(status)
                 last_status = status
         else:
             message, _meta = chunk
-            # Chunks only. The finished AIMessage is emitted too, and printing
-            # both would show every answer twice.
+            speaker = _speaker(namespace)
+            # Three filters, each stopping a different duplicate:
+            #   speaker is None  the supervisor's own commentary
+            #   already answered  the same agent, asked the same thing twice
+            #   AIMessageChunk    chunks only; the finished AIMessage is emitted
+            #                     too, and printing both would double every reply
+            if speaker is None or speaker in answered:
+                continue
             if isinstance(message, AIMessageChunk) and message.content:
                 text = str(message.content)
                 print(text, end="", flush=True)
                 streamed.append(text)
+                speaking = speaker
+                mid_block = True
 
-    if streamed:
+    if mid_block:
         print()
 
     text = "".join(streamed).strip() or _final_text(final.get("messages", []))

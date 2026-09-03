@@ -85,6 +85,11 @@ def build(model: Any | None = None, agents: list[Any] | None = None) -> Any:
         # The supervisor decides one thing at a time. Allowing several handoff
         # calls in one turn is where small models produce malformed routing.
         parallel_tool_calls=False,
+        # Without this, every handoff injects "Transferring back to supervisor"
+        # and "Successfully transferred back to supervisor" into the messages,
+        # which then stream to the user as if they were part of the answer. It
+        # is plumbing; the routing itself is still visible in Langfuse.
+        add_handoff_back_messages=False,
     ).compile()
 
 

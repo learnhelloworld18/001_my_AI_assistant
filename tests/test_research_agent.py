@@ -148,3 +148,11 @@ def test_the_prompt_tells_the_model_snippets_are_not_evidence():
     """Prompt and gate must agree, or the model is set up to be marked down."""
     assert "never answer from snippets alone" in ra.PROMPT
     assert "[TOOL FAILED]" in ra.PROMPT
+
+
+def test_the_prompt_forbids_narrating():
+    """The agent sees handoff bookkeeping and will mimic it: "the research agent
+    has been asked...". Filtering supervisor tokens does not catch that, because
+    it is the agent itself talking."""
+    assert "Do not narrate" in ra.PROMPT
+    assert "third person" in ra.PROMPT
