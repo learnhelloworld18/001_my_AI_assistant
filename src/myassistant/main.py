@@ -25,7 +25,7 @@ from prompt_toolkit.document import Document
 from prompt_toolkit.history import FileHistory
 
 # Imported first so load_dotenv() runs before anything reads os.environ.
-from myassistant import config
+from myassistant import config, dropped
 from myassistant.observability import langfuse_client
 from myassistant.state import ConfidenceTier
 
@@ -440,12 +440,97 @@ def answer(question: str, session: Session) -> str:
     return text
 
 
+def _confirm(question: str) -> bool:
+    """Ask a yes/no question, defaulting to no.
+
+    Defaulting to no matters: this gate is the only thing standing between a
+    dragged path and a file outside PROJECT_ROOT being read, and a stray Enter
+    should decline rather than accept.
+    """
+    try:
+        return input(f"{question} [y/N] ").strip().lower() in ("y", "yes")
+    except EOFError:
+        return False
+
+
+def handle_dropped(path: Path, session: Session) -> bool:
+    """A file was dragged onto the terminal. Ask, then read it.
+
+    Deliberately a confirmed exception to coding_agent's working-directory
+    fence: a dragged file is almost always outside PROJECT_ROOT, which is the
+    point of dragging it. Narrowed to compensate - read-only, one file, asked
+    every time, and the denylist is not negotiable by saying yes.
+    """
+    if dropped.is_denied(path):
+        print(f"refusing to read {path.name}: it looks like a credential file")
+        return True
+
+    what = dropped.kind(path)
+    if what == "unsupported":
+        print(f"I can't read {path.suffix} files")
+        return True
+
+    if not _confirm(dropped.describe(path)):
+        print("skipped")
+        return True
+
+    if what == "image":
+        from myassistant.tools.read_image import look
+
+        print(f"· reading {path.name} …")
+        observation = look(path)
+    else:
+        from myassistant.rag.ingest import load
+        from myassistant.tools.observation import Observation, failed
+
+        try:
+            text = load(path)
+        except Exception as e:  # noqa: BLE001 - an unreadable file is not a crash
+            text, error = "", f"could not read the file: {e}"
+        else:
+            error = ""
+
+        # Deliberately not fetched(): its threshold asks "is this a real page?",
+        # which is the wrong question here. A 300-character note is a perfectly
+        # good file, and the user pointed at this one on purpose - the only
+        # failure worth reporting is that nothing came out at all.
+        if error or not text.strip():
+            observation = failed(
+                error or "the file has no readable text (scanned or empty?)",
+                source=str(path),
+                kind="file",
+            )
+        else:
+            observation = Observation(
+                ok=True,
+                detail=f"read {path.name}",
+                content=text,
+                source=str(path),
+                metrics={"kind": "file", "chars": len(text.strip())},
+            )
+
+    print(observation.render())
+    # Recorded as an exchange so the next question can refer to "it" - the
+    # content is in context without being stored in the vector store, which is
+    # the difference between this and /ingest.
+    session.record(f"[read {path.name}]", str(observation.content or observation.detail))
+    return True
+
+
 def run_turn(line: str, session: Session) -> bool:
     """Handle one line of input. Returns False when the REPL should exit.
 
     Raises on failure - main() owns the error handling, so tests can assert on
     real exceptions instead of parsing printed output.
     """
+    # Checked before meta-commands, not after: every absolute path on macOS
+    # starts with "/", so a dragged file would otherwise be dispatched as an
+    # unknown command. Safe in this order because no meta-command resolves to
+    # an existing file - "/help" is not a path, and "/ingest <path>" is two
+    # tokens, which as_path() rejects.
+    if (path := dropped.as_path(line)) is not None:
+        return handle_dropped(path, session)
+
     if line.startswith("/"):
         return handle_meta(line, session)
 

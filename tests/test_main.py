@@ -79,6 +79,49 @@ def _complete(text: str) -> list[str]:
 # --- routing ---
 
 
+def test_a_dragged_path_is_not_treated_as_a_command(session, tmp_path, monkeypatch):
+    """Every absolute path starts with "/" - so this must be checked first."""
+    f = tmp_path / "notes.md"
+    f.write_text("some notes about the pipeline")
+    monkeypatch.setattr(main, "_confirm", lambda q: False)
+    assert main.run_turn(str(f), session) is True
+    assert main.COMMANDS  # sanity: commands still exist
+
+
+def test_meta_commands_still_work_after_the_reorder(session, capsys):
+    """The path check must not swallow /help, /clear and friends."""
+    assert main.run_turn("/exit", session) is False
+    assert main.run_turn("/nope", session) is True
+    assert "unknown command" in capsys.readouterr().out
+
+
+def test_a_denied_file_is_refused_without_asking(session, tmp_path, capsys, monkeypatch):
+    """Confirmation is not a safety boundary - people say yes to prompts."""
+    f = tmp_path / ".env"
+    f.write_text("SECRET=1")
+    monkeypatch.setattr(main, "_confirm", lambda q: (_ for _ in ()).throw(AssertionError("asked!")))
+    main.run_turn(str(f), session)
+    assert "refusing to read" in capsys.readouterr().out
+
+
+def test_declining_reads_nothing(session, tmp_path, capsys, monkeypatch):
+    f = tmp_path / "notes.md"
+    f.write_text("x" * 200)
+    monkeypatch.setattr(main, "_confirm", lambda q: False)
+    main.run_turn(str(f), session)
+    assert "skipped" in capsys.readouterr().out
+    assert session.history == []
+
+
+def test_a_read_file_enters_the_conversation(session, tmp_path, monkeypatch):
+    """So the next question can say "it" - in context, not in the vector store."""
+    f = tmp_path / "notes.md"
+    f.write_text("The pipeline uses Airflow to orchestrate nightly Glue jobs. " * 5)
+    monkeypatch.setattr(main, "_confirm", lambda q: True)
+    main.run_turn(str(f), session)
+    assert "Airflow" in str(session.history[-1].content)
+
+
 def test_exit_stops_the_loop(session):
     assert main.run_turn("/exit", session) is False
 

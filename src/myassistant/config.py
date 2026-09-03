@@ -154,6 +154,33 @@ CAREER_ROLES = _parse_roles(os.environ.get("CAREER_ROLES", ""))
 # turns that from a ranking problem into a coverage one.
 RAG_PER_ROLE_K = 2
 
+# --- Vision (images) ---
+
+# Tested against a schema diagram with known contents. moondream (1.7GB)
+# fabricated an entire plausible schema that was not in the image;
+# granite3.2-vision:2b (1.5GB) read it correctly under one prompt phrasing and
+# claimed blindness under another, taking anywhere from 16s to 964s. This one
+# scored 9/9 on both a specific and a generic prompt, in 13-36s.
+VISION_MODEL = os.environ.get("VISION_MODEL", "qwen2.5vl:3b")
+
+# Unloaded quickly on purpose. It is ~3GB and runs only when an image is
+# involved; keeping it resident would evict the supervisor, which runs on every
+# single turn, and charge a 2-5s reload to the next text question.
+VISION_KEEP_ALIVE = "2m"
+
+# Longest edge, in pixels, before an image is sent to the model. Measured, not
+# guessed: the same diagram returned 35 useless characters at 4843x5796 and at
+# 2898x2421, then 2049 characters of real content at 1600px. Total pixel count
+# is what breaks it, not fine detail - so downscaling works where tiling is not
+# needed.
+VISION_MAX_EDGE = 1600
+
+# A reply shorter than this means the model saw nothing usable and said
+# something generic about it ("The image appears to be a flowchart", 35 chars).
+# It does not error, so this is the check that turns a silent failure loud -
+# the same job looks_empty() does for web pages.
+VISION_MIN_USEFUL_CHARS = 120
+
 # --- Credentials ---
 
 # .env.example ships placeholders, and a placeholder is a non-empty string - so
