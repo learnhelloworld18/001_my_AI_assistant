@@ -242,6 +242,21 @@ slowly, and against a live model. Fixed with an autouse fixture that
 stubs the graph and the Langfuse client. Lesson: when a leaf function
 starts reaching outside the process, every test above it does too.
 
+## Cross-company questions retrieve too narrowly
+
+"Walk me through my career" returned 4 chunks from 3 files, missing
+Capital One and Michelin. Top-k ranks by similarity alone, so the
+best-matching document's near-identical chunks crowd out other sources.
+The tier still said HIGH: it certifies retrieval *quality*, not
+*coverage*, so the answer is confidently incomplete.
+
+Fix chosen (not yet built): fetch ~12 scored candidates, keep at most 2
+per source file. Preserves the score the tier needs — unlike MMR, which
+returns no scores.
+
+Not a complete fix. Five employers do not fit in six chunks. A one-page
+prose career summary would retrieve as a single strong match.
+
 ## Safety — added entirely, wasn't in the original design
 
 - **`coding_agent` safety boundary.** The first design just said "file/

@@ -65,6 +65,10 @@ of the design, not an afterthought.
   case argues yes — grounding technical answers matters more than code
   tools. Not yet decided.
 
+- **Per-source cap in `rag/query.py`** — fetch ~12 scored candidates, keep
+  at most 2 per source file. Cross-company questions currently retrieve
+  4 chunks from 3 files and silently omit employers; see DESIGN_DECISIONS.
+
 ## Considered, not done
 
 - **General credential-name patterns in `/ingest`** (`*credential*`,
