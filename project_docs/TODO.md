@@ -51,11 +51,12 @@ of the design, not an afterthought.
 
 ## Known, from step 2
 
-- **Streaming.** A research turn is currently a silent 15-30s wait. The
-  answer starts appearing immediately once streamed, even if total time is
-  unchanged — the responsiveness priority is about perceived latency.
-- **Supervisor writes its own sign-off** after an agent answers, breaking
-  the one-job rule. Left visible on purpose for now; see DESIGN_DECISIONS.
+- **Supervisor talks around the agent's answer**, both before the handoff
+  ("Let me fetch that now") and after it (a full paraphrase). Streaming
+  made this much more visible — a research question now shows the answer
+  essentially twice. Left in on purpose; see DESIGN_DECISIONS. The fix is
+  to print only tokens from agent subgraphs, which streaming has made easy:
+  the namespace on each chunk already says which subgraph it came from.
 - **`agents/critic.py`** — the last piece of the evaluation loop, off by
   default behind `CRITIC_ENABLED`.
 - **MCP doc sources** — Microsoft Learn, then Context7, then AWS. The

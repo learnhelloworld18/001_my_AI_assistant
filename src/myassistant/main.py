@@ -3,8 +3,9 @@
 Meta-commands (anything starting with '/') are handled here and never reach an
 agent - faster and more predictable than asking a model to recognise them.
 
-answer() hands the turn to the supervisor, which routes it to one agent and
-returns that agent's reply plus an evidence-based confidence tier.
+answer() hands the turn to the supervisor, which routes it to one agent, and
+streams that agent's reply to the screen as it is generated, followed by an
+evidence-based confidence tier.
 """
 
 from __future__ import annotations
@@ -16,7 +17,7 @@ from dataclasses import dataclass
 from datetime import UTC, datetime
 from typing import Any
 
-from langchain_core.messages import AIMessage, BaseMessage, HumanMessage
+from langchain_core.messages import AIMessage, AIMessageChunk, BaseMessage, HumanMessage
 from prompt_toolkit import PromptSession
 from prompt_toolkit.completion import CompleteEvent, Completer, Completion, PathCompleter
 from prompt_toolkit.document import Document
@@ -218,30 +219,101 @@ def _final_text(messages: list[BaseMessage]) -> str:
     return "(no answer produced)"
 
 
-def answer(question: str, session: Session) -> str:
-    """Run one turn through the supervisor and return what to print.
+def _status(namespace: tuple[str, ...], update: dict[str, Any]) -> str | None:
+    """A one-line "what is happening now", or None if this update is not worth saying.
 
-    Not streamed yet: the whole turn lands at once, so a multi-tool research
-    question is a silent wait. Streaming is the next responsiveness fix.
+    Two things are worth announcing, and both are the moments the user would
+    otherwise be staring at nothing:
+      - which agent the supervisor picked
+      - which tool is about to run, said *before* it runs
+
+    Everything here is read from *tool calls*, never from node completions.
+    A root-level update fires when a subgraph has already finished, so
+    announcing the agent from it printed "· research_agent" after the answer
+    it was meant to introduce. The handoff call happens before the agent runs,
+    which is the whole point of a progress line.
+    """
+    if not namespace:
+        return None  # root updates are completion notices, always too late
+
+    for payload in update.values():
+        for message in (payload or {}).get("messages", []) or []:
+            for call in getattr(message, "tool_calls", None) or []:
+                name = call["name"]
+                if name.startswith("transfer_back"):
+                    return None  # returning to the supervisor is not news
+                if name.startswith("transfer_to_"):
+                    return f"· {name.removeprefix('transfer_to_')}"
+                return f"· {name}…"
+    return None
+
+
+def answer(question: str, session: Session) -> str:
+    """Stream one turn to the screen; return the clean answer text for history.
+
+    Prints as it goes rather than returning a string to print, because the point
+    is that the first words appear in a second or two. Total time is unchanged -
+    perceived time is not, and that is what the responsiveness priority means.
+
+    The returned text carries no confidence tag: the tag is presentation for the
+    human, and feeding "[thin evidence]" back into history as if the assistant
+    had said it would nudge later turns.
     """
     state = {"messages": [*session.history, HumanMessage(content=question)]}
-    result = _supervisor().invoke(
-        state,
-        {
-            # Groups every span of this turn under the session's Langfuse trace.
-            "callbacks": langfuse_client.get_callbacks(session.session_id),
-            # Supervisor hops plus each agent's own budget. Generous here because
-            # the agents cap themselves; this only stops a routing loop.
-            "recursion_limit": 25,
-        },
-    )
+    config = {
+        # Groups every span of this turn under the session's Langfuse trace.
+        "callbacks": langfuse_client.get_callbacks(session.session_id),
+        # Supervisor hops plus each agent's own budget. Generous here because
+        # the agents cap themselves; this only stops a routing loop.
+        "recursion_limit": 25,
+    }
 
-    text = _final_text(result.get("messages", []))
-    tier = result.get("confidence")
+    final: dict[str, Any] = {}
+    streamed: list[str] = []
+    last_status: str | None = None
+
+    # subgraphs=True is what makes this stream at all: agents are compiled
+    # subgraphs, and without it only node-level updates cross the boundary -
+    # no tokens. Verified the hard way.
+    for namespace, mode, chunk in _supervisor().stream(
+        state, config, stream_mode=["updates", "messages", "values"], subgraphs=True
+    ):
+        if mode == "values":
+            if not namespace:  # root state only; subgraphs emit their own
+                final = chunk
+        elif mode == "updates":
+            status = _status(namespace, chunk)
+            if status and status != last_status:
+                if streamed:  # a tool call mid-answer: do not run text together
+                    print()
+                    streamed.clear()
+                print(status)
+                last_status = status
+        else:
+            message, _meta = chunk
+            # Chunks only. The finished AIMessage is emitted too, and printing
+            # both would show every answer twice.
+            if isinstance(message, AIMessageChunk) and message.content:
+                text = str(message.content)
+                print(text, end="", flush=True)
+                streamed.append(text)
+
+    if streamed:
+        print()
+
+    text = "".join(streamed).strip() or _final_text(final.get("messages", []))
+    if not streamed:
+        # Nothing streamed - a model without token support, or an empty run.
+        # Print the answer rather than leaving the turn looking like a hang.
+        print(text)
+
+    tier = final.get("confidence")
     if tier is not None:
         langfuse_client.score(langfuse_client.CONFIDENCE_SCORE, str(tier))
-    tag = _TAGS.get(tier) if tier is not None else None
-    return f"{text}\n{tag}" if tag else text
+        tag = _TAGS.get(tier)
+        if tag:
+            print(tag)
+    return text
 
 
 def run_turn(line: str, session: Session) -> bool:
@@ -253,8 +325,9 @@ def run_turn(line: str, session: Session) -> bool:
     if line.startswith("/"):
         return handle_meta(line, session)
 
+    # answer() streams to the screen itself, so nothing is printed here - doing
+    # both would show every reply twice.
     reply = answer(line, session)
-    print(reply)
     session.record(line, reply)
     return True
 

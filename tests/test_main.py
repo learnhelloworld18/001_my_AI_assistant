@@ -1,7 +1,7 @@
 """main.py: command routing, the '/'-only completer, and error containment."""
 
 import pytest
-from langchain_core.messages import AIMessage, HumanMessage
+from langchain_core.messages import AIMessage, AIMessageChunk, HumanMessage
 from prompt_toolkit.completion import CompleteEvent
 from prompt_toolkit.document import Document
 
@@ -15,17 +15,42 @@ def session():
 
 
 class _StubGraph:
-    """Stands in for the compiled supervisor. Records the state it was given."""
+    """Stands in for the compiled supervisor, in its streaming shape.
 
-    def __init__(self, text="a reply", tier=None):
+    Mirrors what LangGraph actually yields with subgraphs=True: a
+    (namespace, mode, chunk) triple, tokens arriving as AIMessageChunks, and
+    the final root state under mode "values".
+    """
+
+    def __init__(self, text="a reply", tier=None, tokens=True, status=True):
         self.text, self.tier, self.seen = text, tier, None
+        self.tokens, self.status = tokens, status
 
-    def invoke(self, state, config=None):
-        self.seen = state
+    def _final(self, state):
         out = {"messages": [*state["messages"], AIMessage(content=self.text)]}
         if self.tier is not None:
             out["confidence"] = self.tier
         return out
+
+    def stream(self, state, config=None, **kwargs):
+        self.seen = state
+        if self.status:
+            handoff = AIMessage(
+                content="",
+                tool_calls=[
+                    {
+                        "name": "transfer_to_general_agent",
+                        "args": {},
+                        "id": "h1",
+                        "type": "tool_call",
+                    }
+                ],
+            )
+            yield (("supervisor:1",), "updates", {"agent": {"messages": [handoff]}})
+        if self.tokens:
+            for word in self.text.split(" "):
+                yield ((), "messages", (AIMessageChunk(content=word + " "), {}))
+        yield ((), "values", self._final(state))
 
 
 @pytest.fixture(autouse=True)
@@ -134,6 +159,79 @@ def test_history_is_replayed_into_the_next_turn(session, monkeypatch):
     assert [m.content for m in graph.seen["messages"]] == ["first", "a reply", "second"]
 
 
+# --- streaming ---
+
+
+def test_tokens_are_printed_as_they_arrive(session, monkeypatch, capsys):
+    monkeypatch.setattr(main, "_supervisor", lambda: _StubGraph(text="one two three"))
+    main.run_turn("hello", session)
+    assert "one two three" in capsys.readouterr().out
+
+
+def test_the_answer_is_not_printed_twice(session, monkeypatch, capsys):
+    """answer() prints as it streams; run_turn must not print it again."""
+    monkeypatch.setattr(main, "_supervisor", lambda: _StubGraph(text="unique-marker"))
+    main.run_turn("hello", session)
+    assert capsys.readouterr().out.count("unique-marker") == 1
+
+
+def test_a_model_that_cannot_stream_still_prints_its_answer(session, monkeypatch, capsys):
+    """No tokens must not mean a blank screen - fall back to the final state."""
+    monkeypatch.setattr(main, "_supervisor", lambda: _StubGraph(text="fallback", tokens=False))
+    main.run_turn("hello", session)
+    assert "fallback" in capsys.readouterr().out
+
+
+def test_the_active_agent_is_announced(session, monkeypatch, capsys):
+    """The wait before the first token is the part that feels broken."""
+    monkeypatch.setattr(main, "_supervisor", lambda: _StubGraph())
+    main.run_turn("hello", session)
+    assert "· general_agent" in capsys.readouterr().out
+
+
+def test_history_stores_the_answer_without_the_tag(session, monkeypatch):
+    """The tag is presentation - replaying it would nudge later turns."""
+    monkeypatch.setattr(main, "_supervisor", lambda: _StubGraph(tier=ConfidenceTier.LOW))
+    main.run_turn("hello", session)
+    assert "thin evidence" not in str(session.history[-1].content)
+
+
+def test_a_tool_call_is_announced_before_it_runs():
+    """Announcing from the tool node would report a wait that already happened."""
+    call = AIMessage(
+        content="", tool_calls=[{"name": "web_search", "args": {}, "id": "t1", "type": "tool_call"}]
+    )
+    status = main._status(("research_agent:1",), {"agent": {"messages": [call]}})
+    assert status == "· web_search…"
+
+
+def test_the_chosen_agent_is_announced_from_the_handoff_call():
+    """The handoff happens before the agent runs, so it can lead the answer."""
+    call = AIMessage(
+        content="",
+        tool_calls=[
+            {"name": "transfer_to_research_agent", "args": {}, "id": "t1", "type": "tool_call"}
+        ],
+    )
+    assert main._status(("supervisor:1",), {"agent": {"messages": [call]}}) == "· research_agent"
+
+
+def test_transferring_back_is_not_announced():
+    """Returning to the supervisor is bookkeeping, not news."""
+    call = AIMessage(
+        content="",
+        tool_calls=[
+            {"name": "transfer_back_to_supervisor", "args": {}, "id": "t1", "type": "tool_call"}
+        ],
+    )
+    assert main._status(("research_agent:1",), {"agent": {"messages": [call]}}) is None
+
+
+def test_root_updates_are_never_announced():
+    """They fire when a subgraph has already finished - always too late."""
+    assert main._status((), {"research_agent": {}}) is None
+
+
 def test_only_the_question_and_answer_are_kept(session, monkeypatch):
     """Handoffs and tool output must not eat a 3B model's context window."""
     monkeypatch.setattr(main, "_supervisor", lambda: _StubGraph())
@@ -169,11 +267,11 @@ def test_the_tier_is_scored_to_langfuse(session, monkeypatch):
     assert scored == [(main.langfuse_client.CONFIDENCE_SCORE, "low")]
 
 
-def test_an_empty_final_message_does_not_print_nothing(session, monkeypatch, capsys):
-    """A blank last message would look like a hang, not an answer."""
-    monkeypatch.setattr(main, "_supervisor", lambda: _StubGraph(text="   "))
+def test_an_empty_answer_falls_back_rather_than_printing_nothing(session, monkeypatch, capsys):
+    """A blank answer would look like a hang."""
+    monkeypatch.setattr(main, "_supervisor", lambda: _StubGraph(text="   ", tokens=False))
     main.run_turn("hello", session)
-    assert "hello" in capsys.readouterr().out  # falls back to the last non-empty
+    assert "hello" in capsys.readouterr().out  # falls back to the last non-empty message
 
 
 def test_failing_turn_is_caught_not_raised(session, monkeypatch, capsys):
