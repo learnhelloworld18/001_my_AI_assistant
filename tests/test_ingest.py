@@ -42,6 +42,7 @@ def docs(tmp_path):
     (root / "PREP" / "repo" / "main.py").write_text("print('hi')")
     (root / "AWS Certified Data Engineer.pdf").write_text("cert")
     (root / "CLAUDE.md").write_text(RESUME)
+    (root / "Google Services authentication.pdf").write_text(RESUME)
     (root / "resume.pages").write_text("binary-ish")
     (root / ".DS_Store").write_text("junk")
     return root
@@ -79,6 +80,11 @@ def test_certificates_and_tool_instructions_are_excluded(docs):
     found = _names(ingest.discover(docs))
     assert not any("Certified" in n for n in found)
     assert "CLAUDE.md" not in found
+
+
+def test_named_credential_files_are_excluded(docs):
+    """A vector store is somewhere a model can quote from - keep secrets out."""
+    assert "Google Services authentication.pdf" not in _names(ingest.discover(docs))
 
 
 def test_dotfiles_are_excluded(docs):

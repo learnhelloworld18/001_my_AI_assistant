@@ -50,7 +50,19 @@ SKIP_DIRS = {".git", "node_modules", ".venv", "venv", "__pycache__", ".idea", ".
 SKIP_PATTERNS = ("*_BACKUP_*", "*Certified*", "*certificate*")
 
 # Exact names to skip - instructions for other tools, not personal content.
-SKIP_NAMES = {"CLAUDE.md", "README.md", "ASUtranscript.pdf"}
+#
+# The last two are skipped for a different reason: their names suggest they may
+# hold real credentials, and a vector store is somewhere a model can quote from.
+# coding_agent's denylist already forbids reading credential files; /ingest must
+# not be a side door around it. Note gitleaks does not help here - the store
+# lives under ASSISTANT_HOME, outside the repo, so nothing scans it.
+SKIP_NAMES = {
+    "CLAUDE.md",
+    "README.md",
+    "ASUtranscript.pdf",
+    "Data Infrastructure 2022 – Credentials and IDs.pdf",
+    "Google Services authentication.pdf",
+}
 
 # Small enough that a retrieved chunk leaves room for the question and the
 # answer in a 3B context window; overlapped so a fact split across a boundary

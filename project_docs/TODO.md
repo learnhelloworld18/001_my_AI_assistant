@@ -65,6 +65,14 @@ of the design, not an afterthought.
   case argues yes — grounding technical answers matters more than code
   tools. Not yet decided.
 
+## Considered, not done
+
+- **General credential-name patterns in `/ingest`** (`*credential*`,
+  `*secret*`, `*password*`, `*api_key*`). Two specific files are skipped
+  by name today; a pattern would also catch future ones. Not added yet —
+  it would silently skip legitimate documents *about* authentication,
+  which is a real category in data-engineering notes.
+
 ## Small
 
 - `mypy` is not in the dev dependency group, so `uv run mypy src` fails

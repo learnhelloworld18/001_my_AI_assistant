@@ -34,4 +34,10 @@ docker compose -f docker-compose.langfuse.yml down -v        # stop, DELETE data
 15. Added supervisor.py
 16. Added streaming (continuous streaming output in the terminal when application is processing instructions)
 17. Fix the supervisor talking twice - Root-level updates are the right signal; they fire exactly on subgraph completion
-18.
+18. RAG implementation - first chroma db , lanchain-chroma, and  pypdf + python-docx
+    Chroma - no server needed. Its just a python API that break your documents into chunks, run each chunk through an embedding model to turn it into a vector (a list of numbers capturing its meaning), and store those vectors somewhere searchable.
+    NOTE - it works well with ttxt data and not ansk
+
+19. Wrote rag/store.py, rag/manifest.py,
+20. Add ingest.py
+21.
