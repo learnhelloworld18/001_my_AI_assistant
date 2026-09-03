@@ -18,6 +18,7 @@ from myassistant.tools.observation import Observation, emit, failed
 class _Scripted(BaseChatModel):
     replies: list = Field(default_factory=list)
     calls: int = 0
+    seen: list = Field(default_factory=list)
 
     @property
     def _llm_type(self) -> str:
@@ -27,6 +28,7 @@ class _Scripted(BaseChatModel):
         return self
 
     def _generate(self, messages, stop=None, run_manager=None, **kw):
+        self.seen.append(messages)
         msg = (
             self.replies[self.calls]
             if self.calls < len(self.replies)
@@ -58,10 +60,12 @@ def _tool_returning(obs):
     return _t
 
 
-def _run(model, tools):
-    return ca.build(model=model, tools=tools).invoke(
-        {"messages": [HumanMessage(content="what does safe_path do?")]}
-    )
+def _run(reader, tools, writer=None):
+    return ca.build(
+        reader=reader,
+        writer=writer or _model(AIMessage(content="Here is the answer.")),
+        tools=tools,
+    ).invoke({"messages": [HumanMessage(content="what does safe_path do?")]})
 
 
 def test_reading_a_real_file_earns_high():
@@ -96,15 +100,52 @@ def test_the_step_cap_follows_config():
     assert ca.RECURSION_LIMIT == 2 * config.MAX_TOOL_STEPS + 2
 
 
-def test_the_prompt_says_to_look_before_answering():
-    assert "Look before you answer" in ca.PROMPT
+def test_only_the_writer_speaks():
+    """The reader's prose is discarded - two speaking nodes would show the user
+    two answers, the weaker one first. This is the one-job rule, enforced."""
+    read = Observation(
+        ok=True, detail="read x.py", content="def f(): pass", metrics={"kind": "file"}
+    )
+    out = _run(
+        _model(_call("c1"), AIMessage(content="READER PROSE THAT MUST NOT APPEAR")),
+        [_tool_returning(read)],
+        writer=_model(AIMessage(content="WRITER ANSWER")),
+    )
+    spoken = " ".join(str(m.content) for m in out["messages"])
+    assert "WRITER ANSWER" in spoken
+    assert "READER PROSE" not in spoken
 
 
-def test_the_prompt_forbids_narrating_the_handoff():
-    """Seen live: "it seems a request was transferred to another agent"."""
-    assert "Do not narrate" in ca.PROMPT
+def test_the_writer_is_given_what_was_read():
+    """Otherwise the split would throw away the evidence it just gathered."""
+    read = Observation(
+        ok=True, detail="read x.py", content="UNIQUE_FILE_MARKER", metrics={"kind": "file"}
+    )
+    writer = _model(AIMessage(content="ok"))
+    _run(_model(_call("c1"), AIMessage(content="done")), [_tool_returning(read)], writer=writer)
+    assert "UNIQUE_FILE_MARKER" in str(writer.seen[0][-1].content)
 
 
-def test_the_prompt_does_not_claim_it_can_write_files():
-    """It cannot yet, and saying it did would be the worst kind of wrong."""
-    assert "cannot create or modify files" in ca.PROMPT
+def test_a_question_needing_no_file_still_gets_an_answer():
+    """ "Write a SQL query for X" reads nothing - the writer answers alone."""
+    writer = _model(AIMessage(content="SELECT 1;"))
+    out = _run(_model(AIMessage(content="NONE")), [], writer=writer)
+    assert "SELECT 1;" in " ".join(str(m.content) for m in out["messages"])
+    assert out["confidence"] is ConfidenceTier.LOW  # nothing was checked
+
+
+def test_evidence_is_not_double_counted():
+    """The sub-agent returns the whole accumulated list, and observations has an
+    add reducer - returning all of it would double every entry."""
+    read = Observation(ok=True, detail="read x.py", content="x", metrics={"kind": "file"})
+    out = _run(_model(_call("c1"), AIMessage(content="done")), [_tool_returning(read)])
+    assert len(out["observations"]) == 1
+
+
+def test_the_read_prompt_tells_it_not_to_answer():
+    assert "Do not explain or answer" in ca.READ_PROMPT
+
+
+def test_the_write_prompt_does_not_claim_it_can_write_files():
+    """It cannot, and saying it did would be the worst kind of wrong."""
+    assert "cannot create or modify files" in ca.WRITE_PROMPT
