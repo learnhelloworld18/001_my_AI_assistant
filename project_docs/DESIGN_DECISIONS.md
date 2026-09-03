@@ -266,6 +266,34 @@ is not secret, but it is personal, and this repo is public — the same
 split already used for credentials, extended from "secret" to "personal".
 The repo ships the mechanism; the machine supplies the data.
 
+## Vision model chosen by measurement, not by size
+
+Three models were tested against a diagram whose contents were verified
+first, which mattered more than usual here.
+
+| Model | Size | Result |
+|---|---|---|
+| moondream | 1.7GB | Fabricated a whole plausible schema. Named a `salesperson` table with email, phone and zipcode columns; none exist. |
+| granite3.2-vision:2b | 1.5GB | Read it correctly under one prompt, claimed blindness under another. 16s-964s for the same image. |
+| **qwen2.5vl:3b** | 3GB | 9/9 on both a specific and a generic prompt, 13-36s. Ships. |
+
+- **Downscaling is the whole trick.** The same architecture diagram gave
+  35 useless characters at 4843x5796 and at 2898x2421, then 2049
+  characters of real content at 1600px. Total pixel count is what breaks
+  it, not fine detail — so tiling was tried and is not needed.
+- **They fail silently.** An unreadable image returns "The image appears
+  to be a flowchart": fluent, confident, empty, and not an error. Caught
+  by a length-and-phrase check, the same job `looks_empty()` does for a
+  redirect-shell web page.
+- **Prompt phrasing mattered enormously for the weak models and not at
+  all for the good one.** granite scored 5/7 on "list the tables and
+  columns" and 0/7 on "read the contents of the image"; qwen scored 9/9
+  on both. A model that only works when you already know what the image
+  contains is no use for the case where you don't — which is the case.
+- The vision model unloads after two minutes. It runs only when an image
+  is involved, and keeping 3GB resident would evict the supervisor, which
+  runs on every turn.
+
 ## Safety — added entirely, wasn't in the original design
 
 - **`coding_agent` safety boundary.** The first design just said "file/
