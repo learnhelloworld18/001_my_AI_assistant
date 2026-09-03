@@ -18,7 +18,7 @@ from __future__ import annotations
 
 import hashlib
 import sqlite3
-from collections.abc import Iterator
+from collections.abc import Generator
 from contextlib import contextmanager
 from datetime import UTC, datetime
 from pathlib import Path
@@ -40,7 +40,7 @@ _READ_SIZE = 1 << 20
 
 
 @contextmanager
-def _db(path: Path | None = None) -> Iterator[sqlite3.Connection]:
+def _db(path: Path | None = None) -> Generator[sqlite3.Connection, None, None]:
     """Open the manifest, creating the table if this is the first run."""
     conn = sqlite3.connect(path or config.MANIFEST_DB)
     try:
