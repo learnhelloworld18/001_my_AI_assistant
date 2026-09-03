@@ -277,7 +277,18 @@ def _final_text(messages: list[BaseMessage]) -> str:
     # No agent spoke. Fall back to the supervisor's own words rather than to
     # nothing - but never to a HumanMessage, which would echo the question back
     # at the user as if it were the answer.
-    return str(replies[-1].content).strip() if replies else "(no answer produced)"
+    if replies:
+        return str(replies[-1].content).strip()
+
+    # Nothing at all: the supervisor answered with an empty message and never
+    # handed off. A small router does this intermittently. Saying so, with
+    # something to try, beats "(no answer produced)" - which reads like a bug
+    # in the assistant rather than something the user can act on.
+    return (
+        "I didn't pick an agent for that. Try naming what it's about - a file "
+        "or function for your code, 'my notes' for your documents, or ask me "
+        "to look it up."
+    )
 
 
 def _tool_calls(update: dict[str, Any]) -> list[dict[str, Any]]:

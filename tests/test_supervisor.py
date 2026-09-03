@@ -12,7 +12,7 @@ from langgraph.graph import END, START, StateGraph
 from pydantic import Field
 
 from myassistant import supervisor as sup
-from myassistant.agents import docs_agent, general_agent, research_agent
+from myassistant.agents import coding_agent, docs_agent, general_agent, research_agent
 from myassistant.state import AssistantState, ConfidenceTier
 
 
@@ -100,7 +100,7 @@ def test_the_supervisor_is_offered_one_handoff_tool_per_agent():
 
 
 def test_the_prompt_names_every_agent():
-    for agent in (docs_agent, research_agent, general_agent):
+    for agent in (coding_agent, docs_agent, research_agent, general_agent):
         assert agent.NAME in sup.PROMPT
 
 

@@ -315,9 +315,12 @@ def test_the_fallback_prefers_the_agents_answer():
     assert main._final_text(messages) == "the real answer"
 
 
-def test_the_question_is_never_echoed_back_as_the_answer():
-    """A run where no agent spoke must not reply with the user's own words."""
-    assert main._final_text([HumanMessage(content="what is Iceberg?")]) == "(no answer produced)"
+def test_a_failed_routing_says_what_to_try():
+    """A small router intermittently answers with nothing and never hands off.
+    "(no answer produced)" reads like a bug; this reads like something to do."""
+    out = main._final_text([HumanMessage(content="what is Iceberg?")])
+    assert "didn't pick an agent" in out
+    assert "what is Iceberg?" not in out  # never echo the question back
 
 
 def test_a_tool_call_is_announced_before_it_runs():
@@ -404,8 +407,8 @@ def test_an_empty_answer_says_so_rather_than_printing_nothing(session, monkeypat
     monkeypatch.setattr(main, "_supervisor", lambda: _StubGraph(text="   ", tokens=False))
     main.run_turn("hello", session)
     out = capsys.readouterr().out
-    assert "(no answer produced)" in out
-    assert "hello" not in out
+    assert "didn't pick an agent" in out
+    assert "hello" not in out  # never echo the question back
 
 
 def test_failing_turn_is_caught_not_raised(session, monkeypatch, capsys):

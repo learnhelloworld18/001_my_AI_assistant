@@ -5,6 +5,7 @@
        v
     supervisor (llama3.2:3b)   picks ONE agent, hands off, never answers itself
        |
+       +--> coding_agent     the code in the directory you launched from
        +--> docs_agent       the user's own notes, CV and interview prep
        +--> research_agent   the open web. Slower, but grounded in something.
        +--> general_agent    fast, no tools, always tagged UNGROUNDED
@@ -15,10 +16,9 @@
 Routing is the only job. An agent that both routes and answers is the
 combination the one-job rule exists to prevent.
 
-Three agents. coding_agent (needs tools/safety.py) joins last. Each was added
-only after the previous routing was measured - tuning a four-way router before
-knowing two-way works makes it impossible to tell whether a misroute is the
-model, the agent count, or one bad description.
+Four agents. Each was added only after the previous routing was measured -
+tuning a four-way router before knowing two-way works makes it impossible to
+tell whether a misroute is the model, the agent count, or one bad description.
 """
 
 from __future__ import annotations
@@ -29,7 +29,7 @@ from langchain_ollama import ChatOllama
 from langgraph_supervisor import create_supervisor
 
 from myassistant import config
-from myassistant.agents import docs_agent, general_agent, research_agent
+from myassistant.agents import coding_agent, docs_agent, general_agent, research_agent
 from myassistant.state import AssistantState
 
 NAME = "supervisor"
@@ -44,6 +44,9 @@ PROMPT = f"""You route each question to exactly one agent. You never answer \
 questions yourself.
 
 Agents:
+- {coding_agent.NAME}: reads the code in the directory the user launched from. \
+Use for any question about their current project, a file, a function, an error \
+in their own code, or a request to write code.
 - {docs_agent.NAME}: searches the user's OWN saved documents - their CV, \
 interview preparation, work history, and personal technical notes. Use it \
 whenever the question is about them: what they did, where they worked, what \
@@ -83,7 +86,12 @@ def build(model: Any | None = None, agents: list[Any] | None = None) -> Any:
     return create_supervisor(
         agents
         if agents is not None
-        else [docs_agent.build(), research_agent.build(), general_agent.build()],
+        else [
+            coding_agent.build(),
+            docs_agent.build(),
+            research_agent.build(),
+            general_agent.build(),
+        ],
         model=model or _model(),
         prompt=PROMPT,
         state_schema=AssistantState,
