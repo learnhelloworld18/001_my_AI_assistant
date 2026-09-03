@@ -103,10 +103,21 @@ SELF_REPORT_ENABLED = os.environ.get("SELF_REPORT_ENABLED", "").lower() in ("1",
 # --- RAG ---
 
 # Below this, a retrieved chunk is treated as "my notes do not really cover
-# this" rather than as an answer. Provisional: measured 0.544 for a genuine
-# match and 0.033 for an unrelated one on a two-document probe, so the gap is
-# wide - but the number should be revisited against a real collection.
-RAG_RELEVANCE_THRESHOLD = 0.3
+# this" rather than as an answer.
+#
+# Measured against the real resume_interview collection (63 files, 1849
+# chunks), not guessed:
+#   0.67  "tell me about the EMR to Glue migration"
+#   0.58  "what is my experience with Azure Data Factory?"
+#   0.57  "what did I do at Capital One?"
+#   0.54  "describe a time I handled a production incident"
+#   0.50  "what did I do at Michelin?"
+#   ----  the gap
+#   0.24  "what is the capital of France?"
+#   0.24  "how do I bake sourdough bread?"
+# Set near the middle of that gap rather than at either edge, so neither a
+# slightly weak real question nor a slightly lucky off-topic one flips it.
+RAG_RELEVANCE_THRESHOLD = 0.37
 
 # How many chunks to retrieve. Low on purpose: a 3B context window filled with
 # eight marginal chunks answers worse than one filled with three good ones.

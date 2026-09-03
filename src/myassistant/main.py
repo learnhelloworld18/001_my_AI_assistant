@@ -15,6 +15,7 @@ import uuid
 from collections.abc import Callable, Iterable
 from dataclasses import dataclass
 from datetime import UTC, datetime
+from pathlib import Path
 from typing import Any
 
 from langchain_core.messages import AIMessage, AIMessageChunk, BaseMessage, HumanMessage
@@ -103,6 +104,37 @@ def _cmd_clear(arg: str, session: Session) -> bool:
     return True
 
 
+def _cmd_ingest(arg: str, session: Session) -> bool:
+    """/ingest <path> [notes|resume] - read documents into a collection.
+
+    Safe to re-run: unchanged files cost nothing and changed ones replace their
+    own chunks. Defaults to the notes collection, since that is the one that
+    grows; the resume collection is ingested deliberately and rarely.
+    """
+    from myassistant.rag.ingest import ingest
+    from myassistant.rag.store import Collection
+
+    parts = arg.split()
+    if not parts:
+        print("usage: /ingest <path> [notes|resume]")
+        return True
+
+    target = parts[-1].lower() if len(parts) > 1 else "notes"
+    path = Path(" ".join(parts[:-1]) if len(parts) > 1 else parts[0]).expanduser()
+    collection = (
+        Collection.RESUME_INTERVIEW if target.startswith("resume") else Collection.TECH_NOTES
+    )
+
+    if not path.exists():
+        print(f"no such path: {path}")
+        return True
+
+    print(f"reading {path} into {collection} ...")
+    result = ingest(path, collection)
+    print(result.summary())
+    return True
+
+
 def _not_yet(step: int) -> Callable[[str, Session], bool]:
     """Placeholder handler for a command whose feature isn't built yet.
 
@@ -122,7 +154,11 @@ COMMANDS: dict[str, Command] = {
     "/help": Command("show this help", _cmd_help),
     "/exit": Command("quit", _cmd_exit),
     "/clear": Command("forget this session's history", _cmd_clear),
-    "/ingest": Command("add documents to the knowledge base", _not_yet(4), takes_path=True),
+    "/ingest": Command(
+        "add documents to the knowledge base: /ingest <path> [notes|resume]",
+        _cmd_ingest,
+        takes_path=True,
+    ),
     "/remember": Command("save a note to long-term memory", _not_yet(6)),
     "/stats": Command("recent performance summary", _not_yet(9)),
 }

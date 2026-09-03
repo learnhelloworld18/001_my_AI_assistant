@@ -12,7 +12,7 @@ from langgraph.graph import END, START, StateGraph
 from pydantic import Field
 
 from myassistant import supervisor as sup
-from myassistant.agents import general_agent, research_agent
+from myassistant.agents import docs_agent, general_agent, research_agent
 from myassistant.state import AssistantState, ConfidenceTier
 
 
@@ -99,14 +99,21 @@ def test_the_supervisor_is_offered_one_handoff_tool_per_agent():
     assert len(offered) == 2
 
 
-def test_the_prompt_names_both_agents():
-    assert research_agent.NAME in sup.PROMPT
-    assert general_agent.NAME in sup.PROMPT
+def test_the_prompt_names_every_agent():
+    for agent in (docs_agent, research_agent, general_agent):
+        assert agent.NAME in sup.PROMPT
 
 
 def test_the_prompt_breaks_ties_toward_grounding():
-    """A slow grounded answer beats a fast unverifiable one - say so explicitly."""
-    assert f"When unsure, choose {research_agent.NAME}" in sup.PROMPT
+    """A slow checked answer beats a fast unverifiable one - say so explicitly."""
+    assert "prefer a grounded agent" in sup.PROMPT
+
+
+def test_the_prompt_separates_their_facts_from_the_worlds():
+    """docs_agent and research_agent both ground answers; the split is whose
+    fact it is. Stated as a question the model can actually apply."""
+    assert "theirs, or the" in sup.PROMPT
+    assert docs_agent.NAME in sup.PROMPT
 
 
 def test_the_prompt_forbids_the_supervisor_answering():
