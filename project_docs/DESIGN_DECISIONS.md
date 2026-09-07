@@ -315,6 +315,29 @@ and *broke* the regex case, scoring 12/14. Reverted. A longer, clause-heavier
 description matches worse on a 3B, which is worth remembering: prompt additions
 to a small router need re-measuring, not just reasoning about.
 
+## Component tests keep silently becoming live tests
+
+Twice now, adding a feature turned part of the suite into a live-service
+test without anything failing:
+
+- Wiring `main.answer()` to the supervisor made `test_main.py` call real
+  Ollama through `run_turn`. A 0.7s suite became 26s.
+- `test_memory.py` embedded through real Ollama, because `store.get()`
+  builds `OllamaEmbeddings` when no embedding function is passed. 3.4s
+  instead of 1.25s.
+
+Both times the tests still **passed**, which is why it was easy to miss —
+they were just slower, and quietly dependent on a running service. The
+rule (live tests are opt-in, `@pytest.mark.live` only) was never
+violated by anyone deciding to violate it; it eroded by default.
+
+The pattern: whenever a function starts reaching outside the process,
+every test above it does too, silently. The defence is a fake injected at
+the boundary — `FakeEmbeddings`-style for embeddings, a scripted
+`BaseChatModel` for chat, an autouse fixture where a whole file needs it.
+Worth checking suite *runtime* after adding a feature, not just whether
+it is green: the runtime is the signal, not the result.
+
 ## Memory needs a lower recall threshold than documents
 
 Recall returned nothing at first. The document threshold (0.37) sits
