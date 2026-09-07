@@ -294,6 +294,27 @@ first, which mattered more than usual here.
   is involved, and keeping 3GB resident would evict the supervisor, which
   runs on every turn.
 
+## Coding questions routed to research_agent — RESOLVED
+
+**Issue.** "Write a SQL query for the 2nd highest salary per department" went
+to `research_agent`, which answered `MAX(Salary) - 1` — confidently wrong.
+`coding_agent`'s description led with "reads the code in the directory you
+launched from", so a question with no project file in it did not match, while
+`research_agent`'s "anything naming a specific technology" did.
+
+**Fix.** Lead with the writing job, not the reading one: "anything to do with
+code… choose it whenever the answer would contain code, even if no file is
+involved and even if a technology is named." `research_agent` gained an
+explicit exclusion. Routing went from a measured failure to 13/14 across
+14 cases.
+
+**Not fixed:** "explain the difference between INNER JOIN and LEFT JOIN" still
+goes to `general_agent` — correctly, by the stated rule, since that answer need
+not contain code. An added clause covering SQL semantics fixed that one case
+and *broke* the regex case, scoring 12/14. Reverted. A longer, clause-heavier
+description matches worse on a 3B, which is worth remembering: prompt additions
+to a small router need re-measuring, not just reasoning about.
+
 ## Safety — added entirely, wasn't in the original design
 
 - **`coding_agent` safety boundary.** The first design just said "file/

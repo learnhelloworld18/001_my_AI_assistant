@@ -104,6 +104,19 @@ def test_the_prompt_names_every_agent():
         assert agent.NAME in sup.PROMPT
 
 
+def test_the_prompt_sends_code_writing_to_the_coding_agent():
+    """Measured failure: "write a SQL query for the 2nd highest salary" went to
+    research_agent, which answered MAX(salary) - 1. The description used to
+    lead with "reads the code in your project", so a question with no project
+    file in it did not match."""
+    assert "Would the answer contain code?" in sup.PROMPT
+    assert "even if no file is involved" in sup.PROMPT
+
+
+def test_the_prompt_stops_research_taking_code_questions():
+    assert f"a request to produce code goes to {coding_agent.NAME}" in sup.PROMPT
+
+
 def test_the_prompt_breaks_ties_toward_grounding():
     """A slow checked answer beats a fast unverifiable one - say so explicitly."""
     assert "prefer a grounded agent" in sup.PROMPT
@@ -112,7 +125,7 @@ def test_the_prompt_breaks_ties_toward_grounding():
 def test_the_prompt_separates_their_facts_from_the_worlds():
     """docs_agent and research_agent both ground answers; the split is whose
     fact it is. Stated as a question the model can actually apply."""
-    assert "theirs, or the" in sup.PROMPT
+    assert "Is the fact theirs or the world's?" in sup.PROMPT
     assert docs_agent.NAME in sup.PROMPT
 
 
