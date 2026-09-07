@@ -142,6 +142,24 @@ def _parse_roles(raw: str) -> tuple[tuple[str, tuple[str, ...]], ...]:
     return tuple(roles)
 
 
+# Recall from past sessions uses its own, lower bar than document retrieval,
+# because the costs are asymmetric: a weak document match becomes a wrong
+# answer, while a weak memory is one ignorable line of background - and missing
+# a real one costs the continuity that is the entire point of the feature.
+#
+# Measured against two stored notes:
+#   0.71  "spark broadcast joins"              direct
+#   0.53  "Michelin interview"                 direct
+#   0.30  "what do interviewers ask me about?" related, and worth recalling
+#   0.22  "what am I forgetting?"              vague, still worth recalling
+#   ----
+#   0.11  "how do I bake sourdough bread?"     unrelated
+#   0.10  "what is the capital of France?"     unrelated
+# Set above the unrelated band and below everything genuine. The document
+# threshold of 0.37 sits straight through the middle of that and recalled
+# nothing.
+MEMORY_RECALL_THRESHOLD = 0.18
+
 # The owner's career roles, most important first - read from the environment,
 # never committed. This repo is public, and while employment history is not a
 # secret it is personal: the same split already used for credentials, extended

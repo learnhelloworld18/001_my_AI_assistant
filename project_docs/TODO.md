@@ -27,6 +27,10 @@ Left open from that work:
   essentially twice. Left in on purpose; see DESIGN_DECISIONS. The fix is
   to print only tokens from agent subgraphs, which streaming has made easy:
   the namespace on each chunk already says which subgraph it came from.
+- **Recall runs once per session, on the first question.** So a later
+  question on a different topic never recalls anything relevant to it.
+  Cheap to change (recall per turn costs one embedding call); left as is
+  until it actually annoys.
 - **`agents/critic.py`** — the last piece of the evaluation loop, off by
   default behind `CRITIC_ENABLED`.
 - **MCP doc sources** — Microsoft Learn, then Context7, then AWS. The

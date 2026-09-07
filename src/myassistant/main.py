@@ -18,7 +18,13 @@ from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any
 
-from langchain_core.messages import AIMessage, AIMessageChunk, BaseMessage, HumanMessage
+from langchain_core.messages import (
+    AIMessage,
+    AIMessageChunk,
+    BaseMessage,
+    HumanMessage,
+    SystemMessage,
+)
 from prompt_toolkit import PromptSession
 from prompt_toolkit.completion import CompleteEvent, Completer, Completion, PathCompleter
 from prompt_toolkit.document import Document
@@ -59,8 +65,9 @@ class Session:
         self.history: list[BaseMessage] = []
         # Groups this run's Langfuse traces into one session (step 2/8) - without it each turn shows up as an unrelated trace.
         self.session_id = str(uuid.uuid4())
-        # Used by the end-of-session summary (step 6) and /stats (step 9).
+        # Used by the end-of-session summary and /stats (step 9).
         self.started_at = datetime.now(UTC)
+        self._recalled = False  # past sessions are looked up once, not per turn
 
     def record(self, user: str, reply: str) -> None:
         """Append one completed exchange to the history."""
@@ -73,6 +80,33 @@ class Session:
         does not start a new session.
         """
         self.history.clear()
+
+    def recalled(self, question: str) -> list[BaseMessage]:
+        """Notes from past sessions, fetched once per run.
+
+        Once, not per turn: recall costs an embedding call, and the point is
+        continuity across restarts rather than a fresh lookup each question.
+        Returned as a SystemMessage so the model reads it as background rather
+        than as something the user just said.
+        """
+        if self._recalled:
+            return []
+        self._recalled = True
+
+        from myassistant.rag.memory import recall
+
+        notes = recall(question)
+        if not notes:
+            return []
+        joined = "\n".join(f"- {n}" for n in notes)
+        return [
+            SystemMessage(
+                content=(
+                    "From earlier sessions with this user (background, not the "
+                    f"question):\n{joined}"
+                )
+            )
+        ]
 
 
 # --- Meta-commands ---------------------------------------------------------
@@ -135,6 +169,17 @@ def _cmd_ingest(arg: str, session: Session) -> bool:
     return True
 
 
+def _cmd_remember(arg: str, session: Session) -> bool:
+    """/remember <text> - keep this for future sessions, exactly as written."""
+    from myassistant.rag.memory import remember
+
+    if not arg:
+        print("usage: /remember <something worth keeping>")
+        return True
+    print("saved" if remember(arg, session.session_id) else "could not save that")
+    return True
+
+
 def _not_yet(step: int) -> Callable[[str, Session], bool]:
     """Placeholder handler for a command whose feature isn't built yet.
 
@@ -159,7 +204,7 @@ COMMANDS: dict[str, Command] = {
         _cmd_ingest,
         takes_path=True,
     ),
-    "/remember": Command("save a note to long-term memory", _not_yet(6)),
+    "/remember": Command("save a note to long-term memory: /remember <text>", _cmd_remember),
     "/stats": Command("recent performance summary", _not_yet(9)),
 }
 
@@ -599,6 +644,14 @@ def main() -> None:
             # log; the user gets one line and their prompt back.
             log.exception("turn failed: %s", line)
             print(f"error: {e}")
+
+    # Summarised on the way out, where a few seconds cost nothing - the user
+    # has already stopped waiting. A failure here must not delay quitting.
+    if session.history:
+        from myassistant.rag.memory import summarise_session
+
+        print("· remembering this session …")
+        summarise_session(session.history, session.session_id)
 
     # Langfuse batches spans on a background thread, so without this the last
     # turn of every session is silently never sent.

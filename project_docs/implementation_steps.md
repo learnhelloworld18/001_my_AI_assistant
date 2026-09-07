@@ -83,4 +83,7 @@ Chroma
     generating LLM does for eg.)
 27. MCP doc sources
 28. critic.py
-29.
+29. coding agent.py
+30. rag/memory.py
+31. observability/stats.py
+32.

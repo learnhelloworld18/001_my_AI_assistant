@@ -315,6 +315,26 @@ and *broke* the regex case, scoring 12/14. Reverted. A longer, clause-heavier
 description matches worse on a 3B, which is worth remembering: prompt additions
 to a small router need re-measuring, not just reasoning about.
 
+## Memory needs a lower recall threshold than documents
+
+Recall returned nothing at first. The document threshold (0.37) sits
+straight through the middle of the memory score range:
+
+    0.10-0.11  unrelated  (sourdough, capital of France, a python decorator)
+    0.22-0.30  related    ("what do interviewers ask me about?")
+    0.53-0.71  direct     ("spark broadcast joins", "Michelin interview")
+
+`MEMORY_RECALL_THRESHOLD = 0.18` instead, because the costs are
+asymmetric. A weak *document* match becomes a wrong answer; a weak
+*memory* is one ignorable line of background — and missing a real one
+costs exactly the continuity the feature exists for.
+
+Two related choices. Summaries are stored, never transcripts: a raw
+conversation is mostly plumbing, and embedding it fills retrieval with
+noise that competes with the parts worth recalling. And `/remember`
+stores verbatim — you already distilled it, so a 3B paraphrasing a
+sentence you chose carefully can only lose something.
+
 ## Safety — added entirely, wasn't in the original design
 
 - **`coding_agent` safety boundary.** The first design just said "file/
