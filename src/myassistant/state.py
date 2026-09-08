@@ -15,6 +15,7 @@ Two different typing tools on purpose:
 from __future__ import annotations
 
 import operator
+from dataclasses import dataclass
 from enum import StrEnum
 from typing import Annotated, TypedDict
 
@@ -36,6 +37,34 @@ class ConfidenceTier(StrEnum):
     HIGH = "high"  # tools returned real content / validation passed
     LOW = "low"  # thin or failed evidence - must be said out loud in the answer
     UNGROUNDED = "ungrounded"  # general_agent: no tools, so nothing to check against
+
+
+@dataclass(frozen=True)
+class Pending:
+    """An action the agent wants to take, waiting for a human to approve it.
+
+    Queued rather than executed, because a confirmation has to be answered by a
+    person and an agent cannot pause mid-loop to ask. LangGraph's interrupt()
+    would be the tidier mechanism and was tried: it works from a tool up
+    through an agent's own graph, but does not survive langgraph-supervisor's
+    handoff, so the pause never reaches the REPL. Measured, not assumed.
+
+    So the agent proposes, the turn finishes, and main.py asks before anything
+    happens. The cost is that the agent cannot see the result of a write in the
+    same turn - it cannot write a file and then run the tests. With a 3-step
+    cap that was never realistic anyway.
+    """
+
+    kind: str  # "write" or "shell"
+    target: str  # the resolved path, or the command line
+    content: str = ""  # file contents, for a write
+
+    def describe(self) -> str:
+        """The line shown before asking. What is agreed to must be what runs."""
+        if self.kind == "write":
+            lines = self.content.count("\n") + 1
+            return f"write {len(self.content)} chars ({lines} lines) to {self.target}?"
+        return f"run: {self.target}?"
 
 
 class Verdict(BaseModel):
@@ -82,6 +111,11 @@ class AssistantState(TypedDict, total=False):
     # observations would *replace* the list, so evidence from an earlier tool
     # call would vanish exactly when the gate needs to weigh it.
     observations: Annotated[list[Observation], operator.add]
+
+    # Actions awaiting a human yes. Accumulates for the same reason
+    # observations does: an agent may propose more than one in a turn, and a
+    # node returning a partial update would otherwise drop the earlier ones.
+    pending: Annotated[list[Pending], operator.add]
 
     # LangGraph's own step budget, derived from the run's recursion_limit.
     # create_react_agent requires this key and uses it to stop *gracefully* when

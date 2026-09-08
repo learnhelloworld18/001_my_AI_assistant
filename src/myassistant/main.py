@@ -386,6 +386,38 @@ def _status(namespace: tuple[str, ...], update: dict[str, Any]) -> str | None:
     return None
 
 
+def _apply_pending(final: dict[str, Any]) -> None:
+    """Ask about anything the agent proposed, then do it - or don't.
+
+    This is where the confirmation gate lives, and it lives here rather than in
+    a tool on purpose: a human has to answer it, and a tool that both asked and
+    acted would have no point at which the answer could be no. LangGraph's
+    interrupt() would be tidier but does not survive the supervisor's handoff
+    (see state.Pending).
+    """
+    from myassistant.tools.coding import apply
+
+    # A small model routinely proposes the same write twice inside one turn.
+    # Asking the same question twice is worse than a wasted tool call: the
+    # second prompt looks like a different action and trains you to say yes.
+    # Pending is frozen, so identity is just the tuple of its fields.
+    seen: set[tuple[str, str, str]] = set()
+    for action in final.get("pending", []) or []:
+        key = (action.kind, action.target, action.content)
+        if key in seen:
+            continue
+        seen.add(key)
+        if action.kind == "write":
+            preview = "\n".join(action.content.splitlines()[:20])
+            print(f"\n--- {action.target} ---\n{preview}")
+            if action.content.count("\n") >= 20:
+                print("...")
+        if not _confirm(f"\n{action.describe()}"):
+            print("skipped")
+            continue
+        print(apply(action).render())
+
+
 def answer(question: str, session: Session) -> str:
     """Stream one turn to the screen; return the clean answer text for history.
 
@@ -486,6 +518,8 @@ def answer(question: str, session: Session) -> str:
         # Nothing streamed - a model without token support, or an empty run.
         # Print the answer rather than leaving the turn looking like a hang.
         print(text)
+
+    _apply_pending(final)
 
     tier = final.get("confidence")
     if tier is not None:

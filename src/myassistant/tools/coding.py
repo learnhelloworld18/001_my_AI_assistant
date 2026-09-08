@@ -20,6 +20,7 @@ from langchain_core.tools import InjectedToolCallId, tool
 from langgraph.types import Command
 
 from myassistant import config
+from myassistant.state import Pending
 from myassistant.tools.observation import Observation, emit, failed
 from myassistant.tools.safety import Unsafe, Verdict, check_command, safe_path
 
@@ -161,9 +162,10 @@ def do_shell(command: str) -> Observation:
 
 # --- LangChain tools --------------------------------------------------------
 #
-# Only the read-only pair are bound as tools for now. Writing and running
-# commands need the REPL to ask first, and an agent cannot pause mid-loop to
-# do that - see agents/coding_agent.py.
+# The write and shell tools *propose*; they never act. What they return to the
+# model is a description of what would happen, and the action itself is queued
+# in state for main.py to confirm with a human. See state.Pending for why the
+# tidier mechanism (LangGraph interrupt) could not be used.
 
 
 @tool
@@ -192,6 +194,93 @@ def list_project_files(pattern: str, tool_call_id: Annotated[str, InjectedToolCa
     return emit(list_files(pattern), tool_call_id)
 
 
+@tool
+def propose_write(
+    path: str, content: str, tool_call_id: Annotated[str, InjectedToolCallId]
+) -> Command:
+    """Propose writing a file. The user is asked before anything is written.
+
+    Use when asked to create or change a file in the project. Give the complete
+    intended contents - the file is replaced, not appended to. Nothing happens
+    until the user agrees, so say that you have proposed it, never that you
+    have done it.
+
+    Args:
+        path: path relative to the project root, e.g. "src/new.py"
+        content: the complete file contents
+    """
+    refusal, resolved = plan_write(path, content)
+    if refusal is not None or resolved is None:
+        # A refusal is final. It is not queued, so no confirmation can override
+        # it - the denylist is not negotiable by saying yes.
+        return emit(refusal or failed("refused", source=path, kind="file"), tool_call_id)
+
+    action = Pending(kind="write", target=str(resolved), content=content)
+    observation = Observation(
+        ok=True,
+        detail=f"proposed: {action.describe().rstrip('?')} (awaiting the user's yes)",
+        source=str(resolved),
+        metrics={"kind": "proposal", "chars": len(content)},
+    )
+    command = emit(observation, tool_call_id)
+    command.update["pending"] = [action]
+    return command
+
+
+@tool
+def propose_command(command: str, tool_call_id: Annotated[str, InjectedToolCallId]) -> Command:
+    """Propose running a shell command in the project directory.
+
+    Read-only commands (ls, cat, git status, pytest --collect-only) run without
+    asking. Anything that changes state is queued for the user's approval, and
+    some commands are refused outright however the request is phrased.
+
+    Args:
+        command: the command line to run, from the project root
+    """
+    verdict, why = plan_shell(command)
+
+    if verdict is Verdict.DENY:
+        return emit(
+            failed(f"refusing to run that: {why}", source=command, kind="shell"), tool_call_id
+        )
+
+    if verdict is Verdict.ALLOW:
+        # Provably read-only, so it runs now and the model sees the output in
+        # this turn - friction only where it matters.
+        return emit(do_shell(command), tool_call_id)
+
+    action = Pending(kind="shell", target=command)
+    observation = Observation(
+        ok=True,
+        detail=f"proposed: run {command!r} ({why}) - awaiting the user's yes",
+        source=command,
+        metrics={"kind": "proposal"},
+    )
+    queued = emit(observation, tool_call_id)
+    queued.update["pending"] = [action]
+    return queued
+
+
+def apply(action: Pending) -> Observation:
+    """Carry out an action the user has just approved.
+
+    The path was resolved and checked when it was proposed, but it is checked
+    again here: state can be carried across a turn, and a boundary that is only
+    enforced at proposal time is a boundary with a gap in it.
+    """
+    if action.kind == "write":
+        try:
+            return do_write(safe_path(action.target), action.content)
+        except Unsafe as e:
+            return failed(str(e), source=action.target, kind="file")
+
+    verdict, why = check_command(action.target)
+    if verdict is Verdict.DENY:
+        return failed(f"refusing to run that: {why}", source=action.target, kind="shell")
+    return do_shell(action.target)
+
+
 def build_tools() -> list[Any]:
-    """The tools coding_agent gets. Read-only until the write gate is wired."""
-    return [list_project_files, read_project_file]
+    """The tools coding_agent gets."""
+    return [list_project_files, read_project_file, propose_write, propose_command]

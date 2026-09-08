@@ -135,7 +135,78 @@ def test_a_hanging_command_times_out(project, monkeypatch):
     assert "timed out" in obs.detail
 
 
-def test_the_bound_tools_are_read_only_for_now():
-    """Writing needs a confirmation the agent loop cannot pause for."""
+def test_the_bound_tools_read_and_propose_but_never_act():
+    """The write tools propose; main.py is the only thing that acts."""
     names = {t.name for t in coding.build_tools()}
-    assert names == {"list_project_files", "read_project_file"}
+    assert names == {"list_project_files", "read_project_file", "propose_write", "propose_command"}
+
+
+# --- proposing ---
+
+
+def _invoke(tool, **args):
+    """Invoke a tool the way LangGraph does - args nested inside a ToolCall,
+    which is what lets InjectedToolCallId be filled in."""
+    return tool.invoke({"args": args, "id": "t1", "name": tool.name, "type": "tool_call"})
+
+
+def test_a_proposed_write_queues_but_writes_nothing(project):
+    cmd = _invoke(coding.propose_write, path="src/new.py", content="print(1)")
+    assert not (project / "src" / "new.py").exists()
+    assert len(cmd.update["pending"]) == 1
+    assert cmd.update["pending"][0].kind == "write"
+
+
+def test_a_refused_write_is_never_queued(project):
+    """A refusal is final - no confirmation can override the denylist."""
+    cmd = _invoke(coding.propose_write, path="../escape.py", content="x")
+    assert "pending" not in cmd.update
+    assert "[TOOL FAILED]" in str(cmd.update["messages"][0].content)
+
+
+def test_a_read_only_command_runs_immediately(project):
+    """Friction only where it matters."""
+    cmd = _invoke(coding.propose_command, command="ls")
+    assert "pending" not in cmd.update
+    assert "README.md" in str(cmd.update["messages"][0].content)
+
+
+def test_a_state_changing_command_is_queued_not_run(project):
+    cmd = _invoke(coding.propose_command, command="touch created.py")
+    assert not (project / "created.py").exists()
+    assert cmd.update["pending"][0].kind == "shell"
+
+
+def test_a_denied_command_is_never_queued(project):
+    cmd = _invoke(coding.propose_command, command="sudo rm -rf /")
+    assert "pending" not in cmd.update
+    assert "refusing to run" in str(cmd.update["messages"][0].content)
+
+
+# --- applying, after a yes ---
+
+
+def test_applying_a_write_creates_the_file(project):
+    from myassistant.state import Pending
+
+    obs = coding.apply(Pending(kind="write", target=str(project / "ok.py"), content="print(1)"))
+    assert obs.ok
+    assert (project / "ok.py").read_text() == "print(1)"
+
+
+def test_the_fence_is_rechecked_at_apply_time(project):
+    """State can be carried across a turn. A boundary enforced only at proposal
+    time is a boundary with a gap in it."""
+    from myassistant.state import Pending
+
+    obs = coding.apply(Pending(kind="write", target="/etc/passwd", content="x"))
+    assert not obs.ok
+    assert "outside the working directory" in obs.detail
+
+
+def test_a_denied_command_is_refused_at_apply_time_too(project):
+    from myassistant.state import Pending
+
+    obs = coding.apply(Pending(kind="shell", target="sudo ls"))
+    assert not obs.ok
+    assert "refusing to run" in obs.detail

@@ -122,6 +122,33 @@ def test_a_read_file_enters_the_conversation(session, tmp_path, monkeypatch):
     assert "Airflow" in str(session.history[-1].content)
 
 
+def test_an_identical_proposal_is_only_asked_about_once(monkeypatch, capsys):
+    """A small model proposes the same write twice in one turn. Asking twice is
+    worse than a wasted call - the second prompt looks like a different action
+    and trains you to say yes."""
+    from myassistant.state import Pending
+    from myassistant.tools import coding
+
+    action = Pending(kind="write", target="/p/x.py", content="print(1)")
+    asked = []
+    monkeypatch.setattr(main, "_confirm", lambda q: asked.append(q) or False)
+    monkeypatch.setattr(coding, "apply", lambda a: None)
+    main._apply_pending({"pending": [action, action]})
+    assert len(asked) == 1
+
+
+def test_a_declined_proposal_does_nothing(monkeypatch, capsys):
+    from myassistant.state import Pending
+    from myassistant.tools import coding
+
+    applied = []
+    monkeypatch.setattr(main, "_confirm", lambda q: False)
+    monkeypatch.setattr(coding, "apply", lambda a: applied.append(a))
+    main._apply_pending({"pending": [Pending(kind="shell", target="rm x.py")]})
+    assert applied == []
+    assert "skipped" in capsys.readouterr().out
+
+
 def test_exit_stops_the_loop(session):
     assert main.run_turn("/exit", session) is False
 

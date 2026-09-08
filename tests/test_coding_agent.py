@@ -142,10 +142,43 @@ def test_evidence_is_not_double_counted():
     assert len(out["observations"]) == 1
 
 
+def test_a_proposed_action_reaches_the_caller():
+    """The read node forwards only what it added - and must forward `pending`
+    as carefully as `observations`. Dropping it silently swallowed every
+    proposed write: the agent said it had proposed one, and nothing was ever
+    asked or written."""
+    from myassistant.state import Pending
+
+    @tool("propose_write")
+    def _proposer(path: str, tool_call_id: Annotated[str, InjectedToolCallId]) -> Command:
+        """Fake."""
+        cmd = emit(
+            Observation(ok=True, detail="proposed", metrics={"kind": "proposal"}), tool_call_id
+        )
+        cmd.update["pending"] = [Pending(kind="write", target="/p/x.py", content="print(1)")]
+        return cmd
+
+    call = AIMessage(
+        content="",
+        tool_calls=[
+            {"name": "propose_write", "args": {"path": "x.py"}, "id": "c1", "type": "tool_call"}
+        ],
+    )
+    out = ca.build(
+        reader=_model(call, AIMessage(content="proposed it")),
+        writer=_model(AIMessage(content="waiting for your approval")),
+        tools=[_proposer],
+    ).invoke({"messages": [HumanMessage(content="write x.py")]})
+    assert len(out["pending"]) == 1
+    assert out["pending"][0].target == "/p/x.py"
+
+
 def test_the_read_prompt_tells_it_not_to_answer():
     assert "Do not explain or answer" in ca.READ_PROMPT
 
 
-def test_the_write_prompt_does_not_claim_it_can_write_files():
-    """It cannot, and saying it did would be the worst kind of wrong."""
-    assert "cannot create or modify files" in ca.WRITE_PROMPT
+def test_the_write_prompt_does_not_claim_actions_it_has_not_taken():
+    """A proposal is not a write. Claiming otherwise is the worst kind of wrong,
+    because the user would believe a file had changed when it had not."""
+    assert "waiting for the user's approval" in ca.WRITE_PROMPT
+    assert "Never say you have created, changed or run anything" in ca.WRITE_PROMPT

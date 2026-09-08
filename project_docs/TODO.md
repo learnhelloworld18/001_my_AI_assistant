@@ -21,6 +21,11 @@ Left open from that work:
 
 ## Known, from step 2
 
+- **A write cannot be followed by a test run in the same turn.** Actions
+  are applied after the turn ends, so the agent never sees the result.
+  Would need `interrupt()`, which does not survive the supervisor handoff
+  — see DESIGN_DECISIONS.
+
 - **Supervisor talks around the agent's answer**, both before the handoff
   ("Let me fetch that now") and after it (a full paraphrase). Streaming
   made this much more visible — a research question now shows the answer

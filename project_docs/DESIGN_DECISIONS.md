@@ -315,6 +315,37 @@ and *broke* the regex case, scoring 12/14. Reverted. A longer, clause-heavier
 description matches worse on a 3B, which is worth remembering: prompt additions
 to a small router need re-measuring, not just reasoning about.
 
+## Confirmation gate: propose in the graph, confirm in the REPL
+
+`interrupt()` is the mechanism LangGraph provides for exactly this, and
+it was measured rather than assumed:
+
+| | |
+|---|---|
+| tool → agent's own graph | interrupt surfaces, and `Command(resume=True)` resumes it |
+| through `langgraph-supervisor`'s handoff | **does not propagate** — with or without an inherited checkpointer |
+
+So the pause never reaches the REPL, and the design is the one
+`tools/coding.py` was already written for: `propose_write` and
+`propose_command` queue a `Pending` action and describe it; `main.py`
+shows it, asks, and only then acts.
+
+- **Read-only commands still run immediately.** Friction only where it
+  matters.
+- **A refusal is never queued.** The denylist is not negotiable by saying
+  yes, so a denied path or command fails inside the tool and never
+  reaches a prompt.
+- **The fence is re-checked at apply time**, not only at proposal time.
+  State can be carried across a turn, and a boundary enforced only at one
+  end is a boundary with a gap in it.
+- **Identical proposals are deduped.** A small model proposes the same
+  write twice in one turn; asking twice is worse than a wasted call,
+  because the second prompt looks like a different action and trains you
+  to say yes.
+- The cost: the agent cannot see the result of a write in the same turn —
+  it cannot write a file and then run the tests. With a 3-step cap that
+  was never realistic anyway.
+
 ## Component tests keep silently becoming live tests
 
 Twice now, adding a feature turned part of the suite into a live-service

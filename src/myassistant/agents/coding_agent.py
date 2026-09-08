@@ -25,10 +25,12 @@ The split also satisfies the rule that no agent both researches and writes its
 own final answer. `read` returns evidence and nothing else - its prose is
 discarded on purpose - and `write` is the only node that speaks.
 
-**What it cannot do, deliberately.** It reads files; it does not write them or
-run commands, though tools/coding.py has the machinery and safety.py has vetted
-it. The gap is control flow, not safety: the confirmation must be answered by a
-human in the REPL, and an agent cannot pause mid-loop to ask.
+**Writes are proposed, never performed.** propose_write and propose_command
+queue an action and describe it; main.py shows it, asks, and only then acts.
+LangGraph's interrupt() would be the tidier mechanism and was measured: it
+works from a tool up through an agent's own graph, but does not survive
+langgraph-supervisor's handoff, so the pause never reaches the REPL. Read-only
+commands still run immediately - friction only where it matters.
 """
 
 from __future__ import annotations
@@ -42,8 +44,14 @@ from langgraph.graph import END, START, StateGraph
 from langgraph.prebuilt import create_react_agent
 
 from myassistant import config
-from myassistant.state import AssistantState, render_evidence, tier_from_observations
+from myassistant.state import (
+    AssistantState,
+    Pending,
+    render_evidence,
+    tier_from_observations,
+)
 from myassistant.tools.coding import build_tools
+from myassistant.tools.observation import Observation
 
 NAME = "coding_agent"
 
@@ -62,6 +70,10 @@ a read is refused, stop; do not try another path to reach the same file.
 reverse a linked list" - call nothing at all and reply with the single word \
 NONE.
 
+If asked to create or change a file, or to run something, use propose_write or \
+propose_command. They do not act: they queue the action for the user to \
+approve. Read-only commands run straight away.
+
 Do not explain or answer the question. Another step does that. Read what is \
 needed and stop."""
 
@@ -74,8 +86,9 @@ say, and name the file you are describing. If none are given, answer from your \
 own knowledge - that is expected for a general question.
 - Be direct. No preamble about what you are about to do, and no narration of \
 handoffs or tools; that is plumbing, not part of the conversation.
-- You cannot create or modify files, so never claim to have done so. Show the \
-code and say which file it belongs in."""
+- If a write or a command was proposed, say it is waiting for the user's \
+approval. Never say you have created, changed or run anything - you have not; \
+the user decides after you finish."""
 
 
 def _reader() -> ChatOllama:
@@ -132,15 +145,23 @@ def build(
         Discarding the reader's own answer is what keeps this node to one job.
         Letting both nodes speak would show the user two answers, weaker first.
         """
-        before = len(list(state.get("observations", [])))
+        had_observations = len(list(state.get("observations", [])))
+        had_pending = len(list(state.get("pending", [])))
         try:
             result = dict(agent.invoke(state, {"recursion_limit": RECURSION_LIMIT}))
         except GraphRecursionError:
             return {}
         # Only what this node added: the sub-agent returns the whole accumulated
-        # list, and `observations` has an add reducer, so returning all of it
-        # would double every entry.
-        return {"observations": list(result.get("observations", []))[before:]}
+        # list, and both keys have add reducers, so returning all of it would
+        # double every entry. `pending` has to be forwarded as carefully as
+        # `observations` - dropping it silently swallowed every proposed write,
+        # and the agent announced a proposal nobody was ever asked about.
+        observations: list[Observation] = list(result.get("observations", []))
+        pending: list[Pending] = list(result.get("pending", []))
+        return {
+            "observations": observations[had_observations:],
+            "pending": pending[had_pending:],
+        }
 
     def write(state: AssistantState) -> dict[str, Any]:
         """Answer the question, using whatever was read."""
