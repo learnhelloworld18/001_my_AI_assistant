@@ -84,6 +84,19 @@ Chroma
 27. MCP doc sources
 28. critic.py
 29. coding agent.py
-30. rag/memory.py
+30. rag/memory.py, then wiring it into the REPL — /remember
 31. observability/stats.py
-32.
+32. coding agent.py -- graph interrupt() --  so the REPL can ask before acting (restrictions on some shell commands etc)
+         it propagates from a tool, inside an agent subgraph, through the supervisor
+         Interrupt and resume both work at the agent level — but it doesn't propagate through the supervisor.
+         The issue happens because interrupt() is scoped to the specific LangGraph subgraph in which it is raised.When you use langgraph-supervisor to manage agent handoffs, the supervisor orchestrates multiple agents as separate graph nodes or subgraphs. If a tool inside the coding_agent triggers an interrupt(), that interrupt pauses the coding_agent's local graph. However, the supervisor agent treats this handoff or node transition dynamically. If the supervisor's state machine doesn't explicitly bubble up or bubble down the interrupt state across the handoff boundary, the parent graph continues executing its loop, effectively swallowing the pause before it reaches your top-level REPL.
+
+         solution --  a checkpointer on both graphs.
+                # agents/coding_agent.py
+                graph.compile(name=NAME, checkpointer=InMemorySaver())
+
+                # supervisor.py
+                create_supervisor(...).compile(checkpointer=InMemorySaver())
+         a checkpointer is how LangGraph saves the paused state. Without one on the agent, there's nothing to pause into. Without one on the supervisor, Command(resume=True) has no thread to resume — it raises "Cannot use Command(resume=...) without checkpointer". They don't need to be the same instance; both just need one
+
+33. /stats implementation

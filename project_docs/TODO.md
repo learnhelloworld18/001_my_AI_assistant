@@ -19,6 +19,17 @@ Left open from that work:
   The model reads most of them correctly and mangles some ("Articles/Asse.
   Regulations"). Good enough to understand a diagram, not to quote from.
 
+## Found by /stats, on the first run
+
+- **13 of 46 turns never reached an agent** — the supervisor answered
+  nothing and handed off to nobody. Known intermittently; now quantified
+  at roughly a quarter of all turns, which is worse than it felt.
+- **Median turn is 12.9s, worst 204s.** Three turns over 45s. Worth a
+  per-node breakdown in the Langfuse UI before optimising anything.
+- **Confidence is LOW more often than HIGH** (7 low, 4 high, 2 ungrounded
+  in the last 13). Expected while research turns dominate — a search
+  without a page read is LOW by design — but worth watching.
+
 ## Known, from step 2
 
 - **The reader does not always call propose_write.** Asked to "create a

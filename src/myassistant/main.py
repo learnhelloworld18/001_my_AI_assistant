@@ -181,6 +181,14 @@ def _cmd_remember(arg: str, session: Session) -> bool:
     return True
 
 
+def _cmd_stats(arg: str, session: Session) -> bool:
+    """/stats - what the traces say, without opening a browser."""
+    from myassistant.observability.stats import summary
+
+    print(summary())
+    return True
+
+
 def _not_yet(step: int) -> Callable[[str, Session], bool]:
     """Placeholder handler for a command whose feature isn't built yet.
 
@@ -206,7 +214,7 @@ COMMANDS: dict[str, Command] = {
         takes_path=True,
     ),
     "/remember": Command("save a note to long-term memory: /remember <text>", _cmd_remember),
-    "/stats": Command("recent performance summary", _not_yet(9)),
+    "/stats": Command("recent latency, routing and confidence from Langfuse", _cmd_stats),
 }
 
 
