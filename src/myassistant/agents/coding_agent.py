@@ -25,12 +25,13 @@ The split also satisfies the rule that no agent both researches and writes its
 own final answer. `read` returns evidence and nothing else - its prose is
 discarded on purpose - and `write` is the only node that speaks.
 
-**Writes are proposed, never performed.** propose_write and propose_command
-queue an action and describe it; main.py shows it, asks, and only then acts.
-LangGraph's interrupt() would be the tidier mechanism and was measured: it
-works from a tool up through an agent's own graph, but does not survive
-langgraph-supervisor's handoff, so the pause never reaches the REPL. Read-only
-commands still run immediately - friction only where it matters.
+**Writes pause for a human.** propose_write and propose_command call
+interrupt(), which stops the whole graph mid-tool and hands the question to the
+REPL; the answer resumes execution on the same line, so the agent sees the
+result of a write inside the same turn. That needs a checkpointer on this graph
+*and* on the supervisor - with it on only one, the pause either never surfaces
+or cannot be resumed. Read-only commands still run without asking: friction
+only where it matters.
 """
 
 from __future__ import annotations
@@ -39,6 +40,7 @@ from typing import Any
 
 from langchain_core.messages import AIMessage, HumanMessage, SystemMessage
 from langchain_ollama import ChatOllama
+from langgraph.checkpoint.memory import InMemorySaver
 from langgraph.errors import GraphRecursionError
 from langgraph.graph import END, START, StateGraph
 from langgraph.prebuilt import create_react_agent
@@ -140,7 +142,7 @@ def build(
     write_model = writer or _writer()
 
     def read(state: AssistantState) -> dict[str, Any]:
-        """Gather files. Returns only new evidence - never prose.
+        """Gather files and take approved actions. Returns evidence, never prose.
 
         Discarding the reader's own answer is what keeps this node to one job.
         Letting both nodes speak would show the user two answers, weaker first.
@@ -183,7 +185,11 @@ def build(
     graph.add_edge("read", "write")
     graph.add_edge("write", "gate")
     graph.add_edge("gate", END)
-    return graph.compile(name=NAME)
+    # A checkpointer is what lets interrupt() pause inside a tool and resume
+    # after the user answers. Required on this graph *and* on the supervisor:
+    # with it only here, the pause surfaces but Command(resume=...) cannot be
+    # delivered.
+    return graph.compile(name=NAME, checkpointer=InMemorySaver())
 
 
 __all__ = ["NAME", "READ_PROMPT", "RECURSION_LIMIT", "WRITE_PROMPT", "build"]

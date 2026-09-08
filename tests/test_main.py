@@ -32,6 +32,10 @@ class _StubGraph:
             out["confidence"] = self.tier
         return out
 
+    def get_state(self, config):
+        """The real graph exposes paused interrupts here; this one never pauses."""
+        return type("S", (), {"interrupts": ()})()
+
     def stream(self, state, config=None, **kwargs):
         self.seen = state
         if self.status:
@@ -122,31 +126,16 @@ def test_a_read_file_enters_the_conversation(session, tmp_path, monkeypatch):
     assert "Airflow" in str(session.history[-1].content)
 
 
-def test_an_identical_proposal_is_only_asked_about_once(monkeypatch, capsys):
-    """A small model proposes the same write twice in one turn. Asking twice is
-    worse than a wasted call - the second prompt looks like a different action
-    and trains you to say yes."""
-    from myassistant.state import Pending
-    from myassistant.tools import coding
-
-    action = Pending(kind="write", target="/p/x.py", content="print(1)")
-    asked = []
-    monkeypatch.setattr(main, "_confirm", lambda q: asked.append(q) or False)
-    monkeypatch.setattr(coding, "apply", lambda a: None)
-    main._apply_pending({"pending": [action, action]})
-    assert len(asked) == 1
+def test_an_interrupt_payload_is_shown_before_asking(monkeypatch, capsys):
+    """What is agreed to must be what runs - so the preview is printed first."""
+    monkeypatch.setattr(main, "_confirm", lambda q: True)
+    assert main._answer_interrupt({"ask": "write x.py?", "preview": "print(1)"})
+    assert "print(1)" in capsys.readouterr().out
 
 
-def test_a_declined_proposal_does_nothing(monkeypatch, capsys):
-    from myassistant.state import Pending
-    from myassistant.tools import coding
-
-    applied = []
+def test_a_declined_interrupt_returns_false(monkeypatch):
     monkeypatch.setattr(main, "_confirm", lambda q: False)
-    monkeypatch.setattr(coding, "apply", lambda a: applied.append(a))
-    main._apply_pending({"pending": [Pending(kind="shell", target="rm x.py")]})
-    assert applied == []
-    assert "skipped" in capsys.readouterr().out
+    assert main._answer_interrupt({"ask": "run rm x.py?", "preview": ""}) is False
 
 
 def test_exit_stops_the_loop(session):
@@ -379,6 +368,12 @@ def test_transferring_back_is_not_announced():
         ],
     )
     assert main._status(("research_agent:1",), {"agent": {"messages": [call]}}) is None
+
+
+def test_an_interrupt_update_does_not_crash_the_status_line():
+    """A paused graph emits {"__interrupt__": (Interrupt(...),)} - a tuple, not
+    a node's state dict. Reading it as a mapping crashed the turn."""
+    assert main._status(("coding_agent:1",), {"__interrupt__": ("something",)}) is None
 
 
 def test_root_updates_are_never_announced():

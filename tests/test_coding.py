@@ -141,72 +141,96 @@ def test_the_bound_tools_read_and_propose_but_never_act():
     assert names == {"list_project_files", "read_project_file", "propose_write", "propose_command"}
 
 
-# --- proposing ---
+# --- proposing: the tool pauses instead of acting ---
 
 
-def _invoke(tool, **args):
-    """Invoke a tool the way LangGraph does - args nested inside a ToolCall,
-    which is what lets InjectedToolCallId be filled in."""
-    return tool.invoke({"args": args, "id": "t1", "name": tool.name, "type": "tool_call"})
+def _run_tool(tool, project, answer, **args):
+    """Run one tool inside a real graph, answering its interrupt.
+
+    interrupt() only works inside a checkpointed graph, so a tool that pauses
+    cannot be called directly - which is the point: there is no code path where
+    it acts without someone answering.
+    """
+    from langgraph.checkpoint.memory import InMemorySaver
+    from langgraph.graph import END, START, StateGraph
+    from langgraph.types import Command as LGCommand
+
+    from myassistant.state import AssistantState
+
+    def node(state):
+        return dict(
+            tool.invoke({"args": args, "id": "t1", "name": tool.name, "type": "tool_call"}).update
+        )
+
+    g = StateGraph(AssistantState)
+    g.add_node("n", node)
+    g.add_edge(START, "n")
+    g.add_edge("n", END)
+    graph = g.compile(checkpointer=InMemorySaver())
+    cfg = {"configurable": {"thread_id": "t"}}
+    out = graph.invoke({"messages": []}, cfg)
+    paused = graph.get_state(cfg).interrupts
+    if not paused:
+        return out, None
+    resumed = graph.invoke(LGCommand(resume=answer), cfg)
+    return resumed, paused[0].value
 
 
-def test_a_proposed_write_queues_but_writes_nothing(project):
-    cmd = _invoke(coding.propose_write, path="src/new.py", content="print(1)")
-    assert not (project / "src" / "new.py").exists()
-    assert len(cmd.update["pending"]) == 1
-    assert cmd.update["pending"][0].kind == "write"
+def test_a_write_pauses_and_writes_nothing_until_answered(project):
+    out, asked = _run_tool(
+        coding.propose_write, project, False, path="src/new.py", content="print(1)"
+    )
+    assert asked is not None  # it paused
+    assert "src/new.py" in asked["ask"]
+    assert not (project / "src" / "new.py").exists()  # declined, so nothing written
+    assert "declined" in str(out["messages"][-1].content)
 
 
-def test_a_refused_write_is_never_queued(project):
-    """A refusal is final - no confirmation can override the denylist."""
-    cmd = _invoke(coding.propose_write, path="../escape.py", content="x")
-    assert "pending" not in cmd.update
-    assert "[TOOL FAILED]" in str(cmd.update["messages"][0].content)
+def test_a_write_happens_when_the_answer_is_yes(project):
+    out, _ = _run_tool(coding.propose_write, project, True, path="src/new.py", content="print(1)")
+    assert (project / "src" / "new.py").read_text() == "print(1)"
+    assert "[OK]" in str(out["messages"][-1].content)
 
 
-def test_a_read_only_command_runs_immediately(project):
+def test_the_agent_sees_the_result_in_the_same_turn(project):
+    """The reason for using interrupt at all: execution resumes inside the tool,
+    so the write's outcome goes back to the model rather than arriving after."""
+    out, _ = _run_tool(coding.propose_write, project, True, path="a.py", content="x = 1")
+    assert "created a.py" in str(out["messages"][-1].content)
+
+
+def test_a_refused_write_never_pauses(project):
+    """The denylist is not negotiable by saying yes, so it must not be asked."""
+    out, asked = _run_tool(coding.propose_write, project, True, path="../escape.py", content="x")
+    assert asked is None
+    assert "[TOOL FAILED]" in str(out["messages"][-1].content)
+
+
+def test_a_credential_write_never_pauses(project):
+    _, asked = _run_tool(coding.propose_write, project, True, path=".env", content="SECRET=1")
+    assert asked is None
+    assert not (project / ".env").exists()
+
+
+def test_a_read_only_command_runs_without_asking(project):
     """Friction only where it matters."""
-    cmd = _invoke(coding.propose_command, command="ls")
-    assert "pending" not in cmd.update
-    assert "README.md" in str(cmd.update["messages"][0].content)
+    out, asked = _run_tool(coding.propose_command, project, False, command="ls")
+    assert asked is None
+    assert "README.md" in str(out["messages"][-1].content)
 
 
-def test_a_state_changing_command_is_queued_not_run(project):
-    cmd = _invoke(coding.propose_command, command="touch created.py")
+def test_a_state_changing_command_pauses(project):
+    _, asked = _run_tool(coding.propose_command, project, False, command="touch created.py")
+    assert asked is not None
     assert not (project / "created.py").exists()
-    assert cmd.update["pending"][0].kind == "shell"
 
 
-def test_a_denied_command_is_never_queued(project):
-    cmd = _invoke(coding.propose_command, command="sudo rm -rf /")
-    assert "pending" not in cmd.update
-    assert "refusing to run" in str(cmd.update["messages"][0].content)
+def test_a_state_changing_command_runs_when_approved(project):
+    _run_tool(coding.propose_command, project, True, command="touch created.py")
+    assert (project / "created.py").exists()
 
 
-# --- applying, after a yes ---
-
-
-def test_applying_a_write_creates_the_file(project):
-    from myassistant.state import Pending
-
-    obs = coding.apply(Pending(kind="write", target=str(project / "ok.py"), content="print(1)"))
-    assert obs.ok
-    assert (project / "ok.py").read_text() == "print(1)"
-
-
-def test_the_fence_is_rechecked_at_apply_time(project):
-    """State can be carried across a turn. A boundary enforced only at proposal
-    time is a boundary with a gap in it."""
-    from myassistant.state import Pending
-
-    obs = coding.apply(Pending(kind="write", target="/etc/passwd", content="x"))
-    assert not obs.ok
-    assert "outside the working directory" in obs.detail
-
-
-def test_a_denied_command_is_refused_at_apply_time_too(project):
-    from myassistant.state import Pending
-
-    obs = coding.apply(Pending(kind="shell", target="sudo ls"))
-    assert not obs.ok
-    assert "refusing to run" in obs.detail
+def test_a_denied_command_never_pauses(project):
+    out, asked = _run_tool(coding.propose_command, project, True, command="sudo rm -rf /")
+    assert asked is None
+    assert "refusing to run" in str(out["messages"][-1].content)

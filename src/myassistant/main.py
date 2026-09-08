@@ -25,6 +25,7 @@ from langchain_core.messages import (
     HumanMessage,
     SystemMessage,
 )
+from langgraph.types import Command as LGCommand
 from prompt_toolkit import PromptSession
 from prompt_toolkit.completion import CompleteEvent, Completer, Completion, PathCompleter
 from prompt_toolkit.document import Document
@@ -340,7 +341,12 @@ def _tool_calls(update: dict[str, Any]) -> list[dict[str, Any]]:
     """Every tool call in an update, flattened. Empty when there are none."""
     calls: list[dict[str, Any]] = []
     for payload in update.values():
-        for message in (payload or {}).get("messages", []) or []:
+        # Not every update carries a node's state dict. An interrupted graph
+        # emits {"__interrupt__": (Interrupt(...),)} - a tuple - so this has to
+        # tolerate payloads that are not mappings at all.
+        if not isinstance(payload, dict):
+            continue
+        for message in payload.get("messages", []) or []:
             calls.extend(getattr(message, "tool_calls", None) or [])
     return calls
 
@@ -386,36 +392,20 @@ def _status(namespace: tuple[str, ...], update: dict[str, Any]) -> str | None:
     return None
 
 
-def _apply_pending(final: dict[str, Any]) -> None:
-    """Ask about anything the agent proposed, then do it - or don't.
+def _answer_interrupt(payload: Any) -> bool:
+    """Show what a paused tool wants to do, and get a yes or no.
 
-    This is where the confirmation gate lives, and it lives here rather than in
-    a tool on purpose: a human has to answer it, and a tool that both asked and
-    acted would have no point at which the answer could be no. LangGraph's
-    interrupt() would be tidier but does not survive the supervisor's handoff
-    (see state.Pending).
+    The graph is stopped inside the tool while this runs, so whatever is
+    answered here decides what that tool does next - the agent then sees the
+    result and can carry on within the same turn.
     """
-    from myassistant.tools.coding import apply
-
-    # A small model routinely proposes the same write twice inside one turn.
-    # Asking the same question twice is worse than a wasted tool call: the
-    # second prompt looks like a different action and trains you to say yes.
-    # Pending is frozen, so identity is just the tuple of its fields.
-    seen: set[tuple[str, str, str]] = set()
-    for action in final.get("pending", []) or []:
-        key = (action.kind, action.target, action.content)
-        if key in seen:
-            continue
-        seen.add(key)
-        if action.kind == "write":
-            preview = "\n".join(action.content.splitlines()[:20])
-            print(f"\n--- {action.target} ---\n{preview}")
-            if action.content.count("\n") >= 20:
-                print("...")
-        if not _confirm(f"\n{action.describe()}"):
-            print("skipped")
-            continue
-        print(apply(action).render())
+    if isinstance(payload, dict):
+        question, preview = payload.get("ask", "proceed?"), payload.get("preview", "")
+    else:
+        question, preview = str(payload), ""
+    if preview:
+        print(f"\n{preview}")
+    return _confirm(f"\n{question}")
 
 
 def answer(question: str, session: Session) -> str:
@@ -430,13 +420,18 @@ def answer(question: str, session: Session) -> str:
     had said it would nudge later turns.
     """
     state = {"messages": [*session.history, HumanMessage(content=question)]}
-    config = {
+    config_: dict[str, Any] = {
         # Groups every span of this turn under the session's Langfuse trace.
         "callbacks": langfuse_client.get_callbacks(session.session_id),
         # Supervisor hops plus each agent's own budget. Generous here because
         # the agents cap themselves; this only stops a routing loop.
         "recursion_limit": 25,
     }
+
+    # A fresh thread per turn. The checkpointer exists for interrupt/resume,
+    # not for conversation memory - history is kept on the Session, and reusing
+    # a thread id would replay it into the graph twice.
+    config_["configurable"] = {"thread_id": str(uuid.uuid4())}
 
     final: dict[str, Any] = {}
     streamed: list[str] = []
@@ -458,68 +453,78 @@ def answer(question: str, session: Session) -> str:
     # subgraphs=True is what makes this stream at all: agents are compiled
     # subgraphs, and without it only node-level updates cross the boundary -
     # no tokens. Verified the hard way.
-    for namespace, mode, chunk in _supervisor().stream(
-        state, config, stream_mode=["updates", "messages", "values"], subgraphs=True
-    ):
-        if mode == "values":
-            if not namespace:  # root state only; subgraphs emit their own
-                final = chunk
-        elif mode == "updates":
-            # Mark agents done as they complete, so a re-route to one that has
-            # already answered is caught before any repeated token is printed.
-            answered.update(_finished_agents(namespace, chunk))
-            status = _status(namespace, chunk)
+    graph = _supervisor()
+    stream_input: Any = state
+    while True:
+        for namespace, mode, chunk in graph.stream(
+            stream_input, config_, stream_mode=["updates", "messages", "values"], subgraphs=True
+        ):
+            if mode == "values":
+                if not namespace:  # root state only; subgraphs emit their own
+                    final = chunk
+            elif mode == "updates":
+                # Mark agents done as they complete, so a re-route to one that has
+                # already answered is caught before any repeated token is printed.
+                answered.update(_finished_agents(namespace, chunk))
+                status = _status(namespace, chunk)
 
-            # Two suppressions, both about re-routing to an agent that is done.
-            # `answered` covers one that completed; `speaking` covers the common
-            # case - the supervisor tries to hand back to the agent that just
-            # finished talking, which would print a heading with nothing under
-            # it. Checked here rather than by marking on every update: internal
-            # updates arrive *during* streaming, so marking on those cut the
-            # answer off mid-sentence.
-            if status:
-                target = status.removeprefix("· ")
-                if target in answered or target == speaking:
-                    status = None
+                # Two suppressions, both about re-routing to an agent that is done.
+                # `answered` covers one that completed; `speaking` covers the common
+                # case - the supervisor tries to hand back to the agent that just
+                # finished talking, which would print a heading with nothing under
+                # it. Checked here rather than by marking on every update: internal
+                # updates arrive *during* streaming, so marking on those cut the
+                # answer off mid-sentence.
+                if status:
+                    target = status.removeprefix("· ")
+                    if target in answered or target == speaking:
+                        status = None
 
-            if status and status != last_status:
-                if mid_block:
-                    # Interrupted mid-answer by real new work (a tool call, a
-                    # different agent) - close the line and stop this agent from
-                    # repeating itself afterwards.
-                    if speaking and not status.endswith("…"):
-                        answered.add(speaking)
-                    print()
-                    mid_block = False
-                print(status)
-                last_status = status
-        else:
-            message, _meta = chunk
-            speaker = _speaker(namespace)
-            # Three filters, each stopping a different duplicate:
-            #   speaker is None  the supervisor's own commentary
-            #   already answered  the same agent, asked the same thing twice
-            #   AIMessageChunk    chunks only; the finished AIMessage is emitted
-            #                     too, and printing both would double every reply
-            if speaker is None or speaker in answered:
-                continue
-            if isinstance(message, AIMessageChunk) and message.content:
-                text = str(message.content)
-                print(text, end="", flush=True)
-                streamed.append(text)
-                speaking = speaker
-                mid_block = True
+                if status and status != last_status:
+                    if mid_block:
+                        # Interrupted mid-answer by real new work (a tool call, a
+                        # different agent) - close the line and stop this agent from
+                        # repeating itself afterwards.
+                        if speaking and not status.endswith("…"):
+                            answered.add(speaking)
+                        print()
+                        mid_block = False
+                    print(status)
+                    last_status = status
+            else:
+                message, _meta = chunk
+                speaker = _speaker(namespace)
+                # Three filters, each stopping a different duplicate:
+                #   speaker is None  the supervisor's own commentary
+                #   already answered  the same agent, asked the same thing twice
+                #   AIMessageChunk    chunks only; the finished AIMessage is emitted
+                #                     too, and printing both would double every reply
+                if speaker is None or speaker in answered:
+                    continue
+                if isinstance(message, AIMessageChunk) and message.content:
+                    text = str(message.content)
+                    print(text, end="", flush=True)
+                    streamed.append(text)
+                    speaking = speaker
+                    mid_block = True
 
-    if mid_block:
-        print()
+        if mid_block:
+            print()
+            mid_block = False
+
+        # A tool paused mid-graph to ask something. Answer it and resume, which
+        # continues execution on the line inside the tool that called interrupt.
+        paused = graph.get_state(config_).interrupts
+        if not paused:
+            break
+        stream_input = LGCommand(resume=_answer_interrupt(paused[0].value))
+        last_status = None
 
     text = "".join(streamed).strip() or _final_text(final.get("messages", []))
     if not streamed:
         # Nothing streamed - a model without token support, or an empty run.
         # Print the answer rather than leaving the turn looking like a hang.
         print(text)
-
-    _apply_pending(final)
 
     tier = final.get("confidence")
     if tier is not None:

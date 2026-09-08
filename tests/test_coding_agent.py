@@ -65,7 +65,10 @@ def _run(reader, tools, writer=None):
         reader=reader,
         writer=writer or _model(AIMessage(content="Here is the answer.")),
         tools=tools,
-    ).invoke({"messages": [HumanMessage(content="what does safe_path do?")]})
+    ).invoke(
+        {"messages": [HumanMessage(content="what does safe_path do?")]},
+        {"configurable": {"thread_id": "test"}},
+    )
 
 
 def test_reading_a_real_file_earns_high():
@@ -168,7 +171,10 @@ def test_a_proposed_action_reaches_the_caller():
         reader=_model(call, AIMessage(content="proposed it")),
         writer=_model(AIMessage(content="waiting for your approval")),
         tools=[_proposer],
-    ).invoke({"messages": [HumanMessage(content="write x.py")]})
+    ).invoke(
+        {"messages": [HumanMessage(content="write x.py")]},
+        {"configurable": {"thread_id": "test2"}},
+    )
     assert len(out["pending"]) == 1
     assert out["pending"][0].target == "/p/x.py"
 

@@ -26,6 +26,7 @@ from __future__ import annotations
 from typing import Any
 
 from langchain_ollama import ChatOllama
+from langgraph.checkpoint.memory import InMemorySaver
 from langgraph_supervisor import create_supervisor
 
 from myassistant import config
@@ -110,7 +111,13 @@ def build(model: Any | None = None, agents: list[Any] | None = None) -> Any:
         # which then stream to the user as if they were part of the answer. It
         # is plumbing; the routing itself is still visible in Langfuse.
         add_handoff_back_messages=False,
-    ).compile()
+    ).compile(
+        # Needed for interrupt(): a tool inside coding_agent pauses the whole
+        # hierarchy, and Command(resume=...) cannot be delivered without a
+        # checkpointer here as well as on the agent. Measured - see
+        # DESIGN_DECISIONS.
+        checkpointer=InMemorySaver()
+    )
 
 
 __all__ = ["NAME", "PROMPT", "build"]

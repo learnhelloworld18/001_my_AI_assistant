@@ -21,10 +21,10 @@ Left open from that work:
 
 ## Known, from step 2
 
-- **A write cannot be followed by a test run in the same turn.** Actions
-  are applied after the turn ends, so the agent never sees the result.
-  Would need `interrupt()`, which does not survive the supervisor handoff
-  — see DESIGN_DECISIONS.
+- **The reader does not always call propose_write.** Asked to "create a
+  file called primes.py" it sometimes just prints the code instead. The
+  tool path works when it is called; the 3B reader is inconsistent about
+  calling it.
 
 - **Supervisor talks around the agent's answer**, both before the handoff
   ("Let me fetch that now") and after it (a full paraphrase). Streaming

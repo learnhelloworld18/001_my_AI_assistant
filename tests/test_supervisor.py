@@ -70,7 +70,12 @@ GENERAL = _stub_agent(general_agent.NAME, "Quick answer.", ConfidenceTier.UNGROU
 def _run(target, question="what is the broadcast join threshold?"):
     router = _Router(target=target)
     graph = sup.build(model=router, agents=[RESEARCH, GENERAL])
-    out = graph.invoke({"messages": [HumanMessage(content=question)]})
+    # A checkpointer needs a thread; the graph carries one so interrupt() can
+    # pause and resume (see main.answer).
+    out = graph.invoke(
+        {"messages": [HumanMessage(content=question)]},
+        {"configurable": {"thread_id": "test"}},
+    )
     return out, router
 
 

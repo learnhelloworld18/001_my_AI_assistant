@@ -17,7 +17,7 @@ from pathlib import Path
 from typing import Annotated, Any
 
 from langchain_core.tools import InjectedToolCallId, tool
-from langgraph.types import Command
+from langgraph.types import Command, interrupt
 
 from myassistant import config
 from myassistant.state import Pending
@@ -211,20 +211,19 @@ def propose_write(
     """
     refusal, resolved = plan_write(path, content)
     if refusal is not None or resolved is None:
-        # A refusal is final. It is not queued, so no confirmation can override
-        # it - the denylist is not negotiable by saying yes.
+        # A refusal is final, and never becomes a question. The denylist is not
+        # negotiable by saying yes, so it must not reach a prompt at all.
         return emit(refusal or failed("refused", source=path, kind="file"), tool_call_id)
 
     action = Pending(kind="write", target=str(resolved), content=content)
-    observation = Observation(
-        ok=True,
-        detail=f"proposed: {action.describe().rstrip('?')} (awaiting the user's yes)",
-        source=str(resolved),
-        metrics={"kind": "proposal", "chars": len(content)},
-    )
-    command = emit(observation, tool_call_id)
-    command.update["pending"] = [action]
-    return command
+    # Pauses the whole graph here and hands the question to the REPL. Execution
+    # resumes on this line with whatever the user answered, so the agent sees
+    # the result of the write inside the same turn.
+    if not interrupt({"ask": action.describe(), "preview": action.content[:800]}):
+        return emit(
+            failed("the user declined that write", source=str(resolved), kind="file"), tool_call_id
+        )
+    return emit(do_write(resolved, content), tool_call_id)
 
 
 @tool
@@ -246,39 +245,16 @@ def propose_command(command: str, tool_call_id: Annotated[str, InjectedToolCallI
         )
 
     if verdict is Verdict.ALLOW:
-        # Provably read-only, so it runs now and the model sees the output in
-        # this turn - friction only where it matters.
+        # Provably read-only, so it runs without asking - friction only where
+        # it matters.
         return emit(do_shell(command), tool_call_id)
 
     action = Pending(kind="shell", target=command)
-    observation = Observation(
-        ok=True,
-        detail=f"proposed: run {command!r} ({why}) - awaiting the user's yes",
-        source=command,
-        metrics={"kind": "proposal"},
-    )
-    queued = emit(observation, tool_call_id)
-    queued.update["pending"] = [action]
-    return queued
-
-
-def apply(action: Pending) -> Observation:
-    """Carry out an action the user has just approved.
-
-    The path was resolved and checked when it was proposed, but it is checked
-    again here: state can be carried across a turn, and a boundary that is only
-    enforced at proposal time is a boundary with a gap in it.
-    """
-    if action.kind == "write":
-        try:
-            return do_write(safe_path(action.target), action.content)
-        except Unsafe as e:
-            return failed(str(e), source=action.target, kind="file")
-
-    verdict, why = check_command(action.target)
-    if verdict is Verdict.DENY:
-        return failed(f"refusing to run that: {why}", source=action.target, kind="shell")
-    return do_shell(action.target)
+    if not interrupt({"ask": f"{action.describe()} ({why})", "preview": ""}):
+        return emit(
+            failed("the user declined that command", source=command, kind="shell"), tool_call_id
+        )
+    return emit(do_shell(command), tool_call_id)
 
 
 def build_tools() -> list[Any]:
