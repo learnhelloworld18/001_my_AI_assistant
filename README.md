@@ -141,6 +141,75 @@ opinion of itself; every tier comes from something that measurably happened.
 
 ---
 
+## Architecture
+
+```mermaid
+flowchart TD
+    User(["you type something"]) --> Meta{"starts with / ?"}
+    Meta -->|"yes"| Cmds["meta-commands<br/>help · ingest · remember · stats · clear · exit<br/>never reach an agent"]
+    Meta -->|"a file path"| Drop["dropped file<br/>confirm, then read<br/>images via qwen2.5vl"]
+    Meta -->|"no"| Sup["supervisor · qwen2.5:3b<br/>picks ONE agent, never answers"]
+
+    Sup --> Coding
+    Sup --> Docs
+    Sup --> Research
+    Sup --> General
+
+    subgraph Coding ["coding_agent - two models, two jobs"]
+        direction TB
+        CRead["read · qwen2.5:3b<br/>list · read · propose"] --> CWrite["write · qwen2.5-coder:7b<br/>no tools, writes the answer"]
+    end
+
+    subgraph Docs ["docs_agent · qwen2.5:3b"]
+        direction TB
+        DTools["search_resume · search_experience · search_notes"]
+    end
+
+    subgraph Research ["research_agent · qwen2.5:3b"]
+        direction TB
+        RTools["web_search (Tavily) · visit_webpage"]
+    end
+
+    General["general_agent · qwen2.5:3b<br/>no tools, always UNGROUNDED"]
+
+    CRead -.->|"write or run?"| Ask{"interrupt:<br/>ask the user"}
+    Ask -->|"yes"| Act["write the file / run it<br/>agent sees the result"]
+    Ask -->|"no"| Skip["declined"]
+    CRead -.->|"sudo, rm -rf, .env"| Denied["refused outright<br/>never asked"]
+
+    DTools --> Chroma[("Chroma<br/>tech_notes<br/>resume_interview<br/>conversation_memory")]
+    RTools --> Web(["the web"])
+
+    Coding --> Gate{"evidence gate<br/>deterministic"}
+    Docs --> Gate
+    Research --> Gate
+    General --> Gate
+
+    Gate -->|"a page read, or a score above threshold"| High["HIGH · no tag shown"]
+    Gate -->|"snippets only, or a failed fetch"| Low["LOW · thin evidence"]
+    Gate -->|"no tools exist"| Ungrounded["UNGROUNDED · not verified"]
+
+    High --> Out(["streamed answer"])
+    Low --> Out
+    Ungrounded --> Out
+    Out -.->|"every span"| LF[("Langfuse<br/>latency · routing · tiers")]
+```
+
+**Three things worth noticing.**
+
+`coding_agent` runs **two models**: a 3B that calls tools, because the coder
+model emits tool calls as plain text and never actually invokes them, and the
+coder model for writing, where no tools are bound and the defect is irrelevant.
+
+The **evidence gate is deterministic** — it reads what the tools reported, never
+what the model claims. A confident answer built on a failed fetch is still LOW.
+
+Writes **pause the graph mid-tool** and ask, then resume on the same line — so
+the agent sees whether the write succeeded within the same turn. Refusals never
+become questions: the denylist can't be overridden by saying yes.
+
+---
+
 ## What it remembers
 
 | | Where | Survives restart |
