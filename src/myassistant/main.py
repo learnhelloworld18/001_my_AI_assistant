@@ -10,7 +10,11 @@ evidence-based confidence tier.
 
 from __future__ import annotations
 
+import contextlib
 import logging
+import os
+import signal
+import threading
 import uuid
 from collections.abc import Callable, Iterable
 from dataclasses import dataclass
@@ -658,6 +662,90 @@ def run_turn(line: str, session: Session) -> bool:
 # --- Entry point -----------------------------------------------------------
 
 
+# Cleanup runs once. A signal can arrive while /exit is already tidying up, and
+# summarising the same session twice would put two near-identical entries in
+# memory, competing with each other in every later recall.
+_shutting_down = False
+
+
+def _say(message: str) -> None:
+    """print(), but survives having nowhere to print to.
+
+    On SIGHUP the terminal is already gone, so stdout can raise EPIPE - which
+    would turn a clean shutdown into a traceback on the way out.
+    """
+    try:
+        print(message)
+    except (BrokenPipeError, OSError):
+        pass
+
+
+def shut_down(session: Session, *, summary_timeout_s: float = 20.0) -> None:
+    """Flush tracing, then summarise the session. Safe to call more than once.
+
+    The order is deliberate and is the opposite of what it was. Flushing is
+    fast and certain; summarising is a model call that can take fifteen
+    seconds. Doing the slow thing first meant a hang lost the traces too.
+
+    The summary is time-boxed rather than awaited. Nobody is watching - the
+    terminal has usually closed by now - and a process that lingers doing
+    inference after you shut the window is impolite. Better to lose one
+    paragraph than to hang around.
+    """
+    global _shutting_down
+    if _shutting_down:
+        return
+    _shutting_down = True
+
+    # First, because it is quick and because losing traces is silent.
+    langfuse_client.flush()
+
+    if not session.history:
+        return
+
+    from myassistant.rag.memory import summarise_session
+
+    _say("· remembering this session …")
+    done = threading.Event()
+
+    def run() -> None:
+        try:
+            summarise_session(session.history, session.session_id)
+        except Exception:  # a failed summary must never delay quitting
+            log.exception("could not summarise on shutdown")
+        finally:
+            done.set()
+
+    # daemon=True so a slow model call cannot keep the process alive after the
+    # timeout - the thread is abandoned, not waited on.
+    threading.Thread(target=run, daemon=True).start()
+    if not done.wait(summary_timeout_s):
+        _say("· (gave up remembering - taking too long)")
+
+
+def _install_signal_handlers(session: Session) -> None:
+    """Run the same cleanup when the terminal closes as when you type /exit.
+
+    SIGHUP is the terminal window closing; SIGTERM is `kill` or a system
+    shutdown. Without these, closing the window skipped both the flush and the
+    summary - a silent loss, and an arbitrary one, since you did the same thing
+    either way.
+
+    A second signal exits immediately. Swallowing it is how processes become
+    unkillable, and someone signalling twice means it.
+    """
+
+    def handle(signum: int, _frame: Any) -> None:
+        if _shutting_down:
+            os._exit(1)  # already tidying up and asked again - go now
+        shut_down(session)
+        raise SystemExit(128 + signum)
+
+    for sig in (signal.SIGHUP, signal.SIGTERM):
+        with contextlib.suppress(ValueError, AttributeError, OSError):
+            signal.signal(sig, handle)  # ValueError off the main thread
+
+
 def main() -> None:
     """Installed as the `myassistant` command (see [project.scripts])."""
     # Log to ASSISTANT_HOME, not cwd - the app runs from anywhere.
@@ -668,6 +756,7 @@ def main() -> None:
     )
 
     session = Session()
+    _install_signal_handlers(session)
     prompt = PromptSession(
         # History is global, so recall works across launch directories.
         history=FileHistory(str(config.HISTORY_FILE)),
@@ -703,18 +792,8 @@ def main() -> None:
             log.exception("turn failed: %s", line)
             print(f"error: {e}")
 
-    # Summarised on the way out, where a few seconds cost nothing - the user
-    # has already stopped waiting. A failure here must not delay quitting.
-    if session.history:
-        from myassistant.rag.memory import summarise_session
-
-        print("· remembering this session …")
-        summarise_session(session.history, session.session_id)
-
-    # Langfuse batches spans on a background thread, so without this the last
-    # turn of every session is silently never sent.
-    langfuse_client.flush()
-    print("bye")
+    shut_down(session)
+    _say("bye")
 
 
 if __name__ == "__main__":

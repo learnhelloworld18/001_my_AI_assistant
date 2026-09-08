@@ -138,6 +138,95 @@ def test_a_declined_interrupt_returns_false(monkeypatch):
     assert main._answer_interrupt({"ask": "run rm x.py?", "preview": ""}) is False
 
 
+# --- shutdown ---
+
+
+def test_tracing_is_flushed_before_the_slow_summary(session, monkeypatch):
+    """The order is the point. Flushing is fast and certain; summarising is a
+    model call that can hang. Doing the slow thing first lost the traces too."""
+    order = []
+    monkeypatch.setattr(main, "_shutting_down", False)
+    monkeypatch.setattr(main.langfuse_client, "flush", lambda: order.append("flush"))
+    monkeypatch.setattr(
+        "myassistant.rag.memory.summarise_session",
+        lambda *a, **kw: order.append("summary"),
+    )
+    session.record("q", "a")
+    main.shut_down(session)
+    assert order == ["flush", "summary"]
+
+
+def test_a_slow_summary_is_abandoned_not_awaited(session, monkeypatch, capsys):
+    """A process that lingers doing inference after you shut the window is
+    impolite. Better to lose a paragraph than to hang around."""
+    import time
+
+    monkeypatch.setattr(main, "_shutting_down", False)
+    monkeypatch.setattr(main.langfuse_client, "flush", lambda: None)
+    monkeypatch.setattr("myassistant.rag.memory.summarise_session", lambda *a, **kw: time.sleep(5))
+    session.record("q", "a")
+    started = time.monotonic()
+    main.shut_down(session, summary_timeout_s=0.2)
+    assert time.monotonic() - started < 2
+    assert "gave up remembering" in capsys.readouterr().out
+
+
+def test_shutdown_only_happens_once(session, monkeypatch):
+    """A signal can arrive while /exit is already tidying up. Summarising twice
+    would put two near-identical entries in memory, competing at every recall."""
+    calls = []
+    monkeypatch.setattr(main, "_shutting_down", False)
+    monkeypatch.setattr(main.langfuse_client, "flush", lambda: calls.append(1))
+    session.record("q", "a")
+    main.shut_down(session)
+    main.shut_down(session)
+    assert len(calls) == 1
+
+
+def test_an_empty_session_is_not_summarised(session, monkeypatch):
+    monkeypatch.setattr(main, "_shutting_down", False)
+    monkeypatch.setattr(main.langfuse_client, "flush", lambda: None)
+    summarised = []
+    monkeypatch.setattr(
+        "myassistant.rag.memory.summarise_session", lambda *a, **kw: summarised.append(1)
+    )
+    main.shut_down(session)
+    assert summarised == []
+
+
+def test_printing_survives_a_closed_terminal(monkeypatch):
+    """On SIGHUP stdout is gone, and EPIPE would turn a clean exit into a
+    traceback on the way out."""
+
+    def explode(*a, **kw):
+        raise BrokenPipeError("terminal closed")
+
+    monkeypatch.setattr("builtins.print", explode)
+    main._say("bye")  # must not raise
+
+
+def test_hangup_and_terminate_are_both_handled(session, monkeypatch):
+    """SIGHUP is the window closing; SIGTERM is kill or a system shutdown."""
+    import signal as signal_module
+
+    installed = {}
+    monkeypatch.setattr(signal_module, "signal", lambda s, h: installed.setdefault(s, h))
+    main._install_signal_handlers(session)
+    assert signal_module.SIGHUP in installed
+    assert signal_module.SIGTERM in installed
+
+
+def test_ctrl_c_is_left_alone(session, monkeypatch):
+    """Ctrl-C clears the line at the prompt and cancels a turn mid-answer.
+    Neither should become an exit."""
+    import signal as signal_module
+
+    installed = {}
+    monkeypatch.setattr(signal_module, "signal", lambda s, h: installed.setdefault(s, h))
+    main._install_signal_handlers(session)
+    assert signal_module.SIGINT not in installed
+
+
 def test_exit_stops_the_loop(session):
     assert main.run_turn("/exit", session) is False
 

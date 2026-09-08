@@ -100,3 +100,5 @@ Chroma
          a checkpointer is how LangGraph saves the paused state. Without one on the agent, there's nothing to pause into. Without one on the supervisor, Command(resume=True) has no thread to resume — it raises "Cannot use Command(resume=...) without checkpointer". They don't need to be the same instance; both just need one
 
 33. /stats implementation
+34. add session filtering to /stats
+35.

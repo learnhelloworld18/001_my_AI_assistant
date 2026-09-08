@@ -347,6 +347,38 @@ negotiable by saying yes; and an interrupted graph emits
 `{"__interrupt__": (Interrupt(...),)}` — a tuple, not a node's state
 dict — which crashed the status line until it stopped assuming mappings.
 
+## Closing the terminal should mean the same as /exit
+
+Two things ran on the way out of the REPL - flushing Langfuse and
+summarising the session into memory - and neither ran when the terminal
+window was closed. SIGHUP kills a Python process without running them.
+That is a silent loss, and an arbitrary one: from the user's side,
+closing the window and typing `/exit` are the same act.
+
+Now SIGHUP and SIGTERM run the same cleanup. Three details decided it:
+
+- **Flush first, summarise second** — the reverse of the original order.
+  Flushing is one fast call to localhost; summarising is a model call
+  that can take fifteen seconds. Doing the slow thing first meant a hang
+  lost the traces as well.
+- **The summary is time-boxed, not awaited.** Nobody is watching once the
+  terminal has gone, and a process that lingers doing inference after you
+  shut the window is impolite. Twenty seconds, then abandon the thread.
+- **A second signal exits immediately.** Swallowing it is how processes
+  become unkillable, and someone signalling twice means it.
+
+`print()` is wrapped, because on SIGHUP stdout is already gone and EPIPE
+would turn a clean shutdown into a traceback on the way out. Ctrl-C is
+deliberately left alone - it clears the line at the prompt and cancels a
+turn mid-answer, and neither should become an exit.
+
+**What this does not fix, and cannot:** SIGKILL, an OOM kill, a segfault
+or a power cut still lose the session summary, because no handler
+survives them. The loss stays bounded because everything durable is
+written when it happens - `/remember` notes, ingested documents, and any
+file the agent wrote are all on disk already. A crash costs exactly one
+auto-summary, of the session you were in.
+
 ## Component tests keep silently becoming live tests
 
 Twice now, adding a feature turned part of the suite into a live-service
