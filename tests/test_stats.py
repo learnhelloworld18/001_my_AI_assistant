@@ -18,9 +18,10 @@ class _Client:
     def __init__(self, traces, detail=None, raises=False):
         self._traces, self._detail, self._raises = traces, detail, raises
 
-    def fetch_traces(self, limit=100):
+    def fetch_traces(self, limit=100, **query):
         if self._raises:
             raise ConnectionError("langfuse is down")
+        self.query = query
         return SimpleNamespace(data=self._traces[:limit])
 
     def fetch_trace(self, trace_id):
@@ -53,9 +54,9 @@ def test_a_failed_fetch_returns_a_line_not_an_exception(client):
     assert "could not read traces" in stats.summary()
 
 
-def test_no_traces_yet_is_not_an_error(client):
+def test_no_traces_is_not_an_error(client):
     client([])
-    assert "no traces yet" in stats.summary()
+    assert "no traces for" in stats.summary()
 
 
 def test_one_unreadable_trace_does_not_lose_the_report(client, monkeypatch):
@@ -63,7 +64,7 @@ def test_one_unreadable_trace_does_not_lose_the_report(client, monkeypatch):
     monkeypatch.setattr(
         c, "fetch_trace", lambda tid: (_ for _ in ()).throw(ConnectionError("gone"))
     )
-    assert "1 turns traced" in stats.summary()
+    assert "1 turns" in stats.summary()
 
 
 # --- what it reports ---
@@ -132,3 +133,60 @@ def test_the_score_sample_is_bounded(client):
 def test_the_host_is_shown_so_the_dashboard_can_be_opened(client):
     client([_trace()])
     assert config.LANGFUSE_HOST in stats.summary()
+
+
+# --- scoping ---
+
+
+def test_a_window_argument_is_parsed():
+    assert stats.parse_window("24h") == ("24h", "last 24 hours")
+    assert stats.parse_window("3d") == ("3d", "last 3 days")
+    assert stats.parse_window("1d") == ("1d", "last 1 day")  # singular
+    assert stats.parse_window("30m") == ("30m", "last 30 minutes")
+
+
+def test_all_and_empty_mean_everything():
+    assert stats.parse_window("") == (None, "all time")
+    assert stats.parse_window("all") == (None, "all time")
+
+
+def test_nonsense_falls_back_rather_than_refusing():
+    """A report is not worth an argument about syntax."""
+    assert stats.parse_window("banana") == (None, "all time")
+    assert stats.parse_window("24x") == (None, "all time")
+
+
+def test_a_session_filter_is_passed_to_langfuse(client):
+    c = client([_trace()])
+    stats.summary(session_id="abc", scope="this session")
+    assert c.query["session_id"] == "abc"
+
+
+def test_a_window_becomes_a_from_timestamp(client):
+    c = client([_trace()])
+    stats.summary(window="24h", scope="last 24 hours")
+    assert "from_timestamp" in c.query
+
+
+def test_no_filter_sends_no_narrowing_query(client):
+    c = client([_trace()])
+    stats.summary(scope="all time")
+    assert "session_id" not in c.query
+    assert "from_timestamp" not in c.query
+
+
+def test_the_scope_is_stated_in_the_output(client):
+    """46 turns means nothing without saying 46 turns of what."""
+    client([_trace()])
+    assert "this session" in stats.summary(scope="this session")
+
+
+def test_an_empty_session_suggests_asking_something(client):
+    client([])
+    assert "ask a question first" in stats.summary(session_id="abc", scope="this session")
+
+
+def test_an_empty_window_suggests_widening_it(client):
+    """Different advice: there is history, just not in this window."""
+    client([])
+    assert "/stats all" in stats.summary(window="24h", scope="last 24 hours")

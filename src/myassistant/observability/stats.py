@@ -103,8 +103,46 @@ def _tiers(client: Any, traces: list[Any]) -> Counter[str]:
     return tiers
 
 
-def summary(limit: int = DEFAULT_LIMIT) -> str:
-    """The text `/stats` prints. Never raises - a report cannot be worth a crash."""
+def parse_window(arg: str) -> tuple[str | None, str]:
+    """Turn a /stats argument into (period, label). "" means everything.
+
+    Accepts "24h", "3d", "30m" and "all". Anything else is treated as "all"
+    rather than refused: a report is not worth an argument about syntax.
+    """
+    arg = arg.strip().lower()
+    if not arg or arg == "all":
+        return None, "all time"
+    units = {"m": ("minutes", "minute"), "h": ("hours", "hour"), "d": ("days", "day")}
+    if arg[-1] in units and arg[:-1].isdigit():
+        amount, (unit, singular) = int(arg[:-1]), units[arg[-1]]
+        return arg, f"last {amount} {singular if amount == 1 else unit}"
+    return None, "all time"
+
+
+def _since(window: str | None) -> Any:
+    """The from_timestamp for a window like "24h", or None."""
+    if not window:
+        return None
+    from datetime import UTC, datetime, timedelta
+
+    unit = {"m": "minutes", "h": "hours", "d": "days"}[window[-1]]
+    return datetime.now(UTC) - timedelta(**{unit: int(window[:-1])})
+
+
+def summary(
+    limit: int = DEFAULT_LIMIT,
+    *,
+    session_id: str | None = None,
+    window: str | None = None,
+    scope: str = "all time",
+) -> str:
+    """The text `/stats` prints. Never raises - a report cannot be worth a crash.
+
+    Scoping matters more than it looks. Traces accumulate across every session
+    and every experiment, so an unfiltered count answers "what has this
+    project ever done" rather than "how is it behaving now" - and the second is
+    the question worth asking after a change.
+    """
     client = _client()
     if client is None:
         return (
@@ -112,20 +150,28 @@ def summary(limit: int = DEFAULT_LIMIT) -> str:
             "  docker compose -f docker-compose.langfuse.yml up -d"
         )
 
+    query: dict[str, Any] = {"limit": limit}
+    if session_id:
+        query["session_id"] = session_id
+    if (start := _since(window)) is not None:
+        query["from_timestamp"] = start
+
     try:
-        traces = client.fetch_traces(limit=limit).data
+        traces = client.fetch_traces(**query).data
     except Exception as e:
         log.exception("could not fetch traces")
         return f"could not read traces: {e}"
 
     if not traces:
-        return "no traces yet - ask a question first"
+        return f"no traces for {scope}" + (
+            " - ask a question first" if session_id else " - try /stats all"
+        )
 
     latencies = sorted(
         (t.latency, str(getattr(t, "name", "?"))) for t in traces if getattr(t, "latency", None)
     )
     values = [seconds for seconds, _ in latencies]
-    lines = [f"{len(traces)} turns traced ({config.LANGFUSE_HOST})"]
+    lines = [f"{len(traces)} turns · {scope} · {config.LANGFUSE_HOST}"]
 
     if values:
         median = values[len(values) // 2]

@@ -182,10 +182,21 @@ def _cmd_remember(arg: str, session: Session) -> bool:
 
 
 def _cmd_stats(arg: str, session: Session) -> bool:
-    """/stats - what the traces say, without opening a browser."""
-    from myassistant.observability.stats import summary
+    """/stats [all|24h|3d] - what the traces say, without opening a browser.
 
-    print(summary())
+    Defaults to this session, because the question worth asking after a change
+    is "how is it behaving now", and traces accumulate across every session and
+    every experiment. `/stats all` is the whole history.
+    """
+    from myassistant.observability.stats import parse_window, summary
+
+    arg = arg.strip().lower()
+    if not arg:
+        print(summary(session_id=session.session_id, scope="this session"))
+        return True
+
+    window, label = parse_window(arg)
+    print(summary(window=window, scope=label))
     return True
 
 
