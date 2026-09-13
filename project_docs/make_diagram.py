@@ -44,29 +44,48 @@ OUT = Path(__file__).resolve().parent.parent / "architecture"
 #   royalblue  storage reads and writes
 #   grey       observability and internal contracts
 #   darkgreen  model serving
-PATH = Edge(color="black")
-STOP = Edge(color="firebrick", style="bold")
-DATA = Edge(color="royalblue")
+PATH = Edge(color="black", fontsize="26")
+STOP = Edge(color="firebrick", style="bold", fontsize="26")
+DATA = Edge(color="royalblue", fontsize="26")
 # constraint=false on anything that is not part of the forward flow. Without
 # it, a feedback edge (the answer returning to the REPL, a tool resuming, Ollama
 # serving nine nodes) drags its endpoints out of rank and the bands dissolve -
 # which is what made the first version read as scattered rather than as a flow.
-TRACE = Edge(color="grey", style="dashed", constraint="false")
-NOTE = Edge(color="grey", style="dotted", constraint="false")
-BACK = Edge(color="black", style="dashed", constraint="false")
-SERVE = Edge(color="darkgreen", style="dotted", constraint="false")
+TRACE = Edge(color="grey", style="dashed", constraint="false", fontsize="26")
+NOTE = Edge(color="grey", style="dotted", constraint="false", fontsize="26")
+BACK = Edge(color="black", style="dashed", constraint="false", fontsize="26")
+SERVE = Edge(color="darkgreen", style="dotted", constraint="false", fontsize="26")
+
+# Nodes inside a cluster stack in the graph's direction, so a chain of four
+# becomes a tall narrow column. Passing LR to the cluster lays its own contents
+# out horizontally while the graph as a whole still reads top to bottom.
+WIDE = {"rankdir": "LR"}
+
+# Doubled from graphviz's defaults (graph 24, node 14, edge 14). At the sizes
+# this renders to, the default is unreadable without zooming twice.
+# height as well as fontsize. diagrams places the label inside a fixed-height
+# node box, so a five- or six-line label at double size overflows upward and
+# runs straight through the icon. Taller boxes give the text somewhere to go.
+NODE_ATTR = {"fontsize": "28", "height": "3.2", "imagepos": "tc", "labelloc": "b"}
+# Kept for completeness, but diagrams overrides it per edge - the size that
+# actually applies is the fontsize passed to each Edge below.
+EDGE_ATTR = {"fontsize": "26"}
 
 GRAPH_ATTR = {
-    "fontsize": "24",
+    "fontsize": "48",
     "bgcolor": "white",
-    "splines": "spline",
+    # Manhattan routing. Tried and rejected in an earlier pass, when feedback
+    # edges still set rank and ortho sent them the long way round; with those
+    # now unconstrained it produces clean right angles.
+    "splines": "ortho",
     # Ranks the graph by the forward flow only, so it reads top to bottom:
     # you -> REPL -> router -> agents -> tools -> gate -> tier -> back to you.
     "newrank": "true",
-    # Wide, because these labels are four lines each - at 0.45 adjacent nodes
-    # overlap and the text becomes unreadable where it matters most.
-    "nodesep": "1.1",
-    "ranksep": "1.3",
+    # Scaled with the font. Doubling the text doubled the label widths, and
+    # 1.1 - which was right at the old size - put them straight through each
+    # other. Spacing has to move with type size, not be set once.
+    "nodesep": "3.2",
+    "ranksep": "2.2",
     "pad": "0.6",
     "dpi": "110",
 }
@@ -87,11 +106,13 @@ def build() -> None:
         # column that is unreadable however much detail it carries.
         direction="TB",
         graph_attr=GRAPH_ATTR,
+        node_attr=NODE_ATTR,
+        edge_attr=EDGE_ATTR,
         outformat="png",
     ):
         user = User("you\nany directory · the one you\nlaunch from is the project")
 
-        with Cluster("REPL  ·  main.py"):
+        with Cluster("REPL  ·  main.py", graph_attr=WIDE):
             repl = Python(
                 "prompt_toolkit\nFileHistory ~/.myassistant/history\n"
                 "completes only on '/'\nstreams tokens · subgraphs=True"
@@ -107,14 +128,14 @@ def build() -> None:
                 "2. summarise, 20s cap\nsecond signal exits at once"
             )
 
-        with Cluster("meta-commands  ·  never reach an agent"):
+        with Cluster("meta-commands  ·  never reach an agent", graph_attr=WIDE):
             c_help = InputOutput("/help")
             c_clear = InputOutput("/clear\nwipes history,\nkeeps session_id")
             c_ingest = InputOutput("/ingest <path>\n[notes|resume]")
             c_remember = InputOutput("/remember <text>\nstored verbatim")
             c_stats = InputOutput("/stats [all|24h|3d]\ndefaults to this session")
 
-        with Cluster("dragged file  ·  dropped.py"):
+        with Cluster("dragged file  ·  dropped.py", graph_attr=WIDE):
             d_parse = Decision("shlex unescape\n'/a/my\\ file.png'\nresolves to a real file?")
             d_deny = Decision("denylist\n.env  *.pem  *.key\n~/.ssh  ~/.aws  ~/.gnupg")
             d_ask = Decision("confirm\nresolved path + size\ndefaults to no")
@@ -134,13 +155,13 @@ def build() -> None:
             cg_read = Python("read node\nqwen2.5:3b + tools\nreturns evidence, no prose")
             cg_write = Python("write node\nqwen2.5-coder:7b-q4_K_M\nno tools bound")
             cg_gate = Decision("gate")
-            with Cluster("tools/coding.py"):
+            with Cluster("tools/coding.py", graph_attr=WIDE):
                 cg_list = Python("list_project_files")
                 cg_readf = Python("read_project_file\n20k char cap")
                 cg_pw = Python("propose_write")
                 cg_pc = Python("propose_command")
 
-        with Cluster("tools/safety.py  ·  PROJECT_ROOT = cwd captured at launch"):
+        with Cluster("tools/safety.py  ·  PROJECT_ROOT = cwd captured at launch", graph_attr=WIDE):
             s_path = Decision("safe_path()\nresolve() BEFORE the check\ncatches ../.. and symlinks")
             s_cmd = Decision(
                 "check_command()\nper segment, strictest wins\nunknown = CONFIRM, never ALLOW"
@@ -173,7 +194,7 @@ def build() -> None:
             "general_agent\nqwen2.5:3b · no tools\nsingle call, no ReAct loop\nalways UNGROUNDED"
         )
 
-        with Cluster("contracts"):
+        with Cluster("contracts", graph_attr=WIDE):
             obs = Document(
                 "Observation (frozen)\nok · detail · content\nsource · metrics{kind,…}\n"
                 "render() -> [OK] / [TOOL FAILED]"
@@ -192,7 +213,7 @@ def build() -> None:
             "UNGROUNDED    unverified\ntiers, never percentages"
         )
 
-        with Cluster("storage  ·  ~/.myassistant  ·  embedded, no server"):
+        with Cluster("storage  ·  ~/.myassistant  ·  embedded, no server", graph_attr=WIDE):
             man = Postgresql(
                 "manifest.db (SQLite)\n(source, collection) -> hash\nhashes CONTENT, not mtime"
             )
@@ -210,29 +231,29 @@ def build() -> None:
             "Ollama · localhost:11434\nqwen2.5:3b · qwen2.5-coder:7b\nqwen2.5vl:3b · nomic-embed-text"
         )
         web = Internet("Tavily API\nand the open web")
-        with Cluster("observability  ·  optional, degrades to a no-op"):
+        with Cluster("observability  ·  optional, degrades to a no-op", graph_attr=WIDE):
             lf = Grafana("Langfuse v2\nCallbackHandler on the graph\nauth_check once, cached")
             lfdb = Docker("docker compose\nweb + postgres")
 
         # --- request path -----------------------------------------------------
-        user >> Edge(label="  types a prompt", color="black", penwidth="2.5") >> repl
+        user >> Edge(fontsize="26", label="  types a prompt", color="black", penwidth="2.5") >> repl
         repl >> PATH >> route
         repl >> NOTE >> sess
         repl >> NOTE >> errors
 
-        route >> Edge(label="starts with /") >> c_help
+        route >> Edge(fontsize="26", label="starts with /") >> c_help
         route >> PATH >> c_clear
         route >> PATH >> c_ingest
         route >> PATH >> c_remember
         route >> PATH >> c_stats
-        route >> Edge(label="a real file path") >> d_parse
-        route >> Edge(label="a question") >> sup
+        route >> Edge(fontsize="26", label="a real file path") >> d_parse
+        route >> Edge(fontsize="26", label="a question") >> sup
 
         d_parse >> PATH >> d_deny
         d_deny >> STOP >> d_refused
         d_deny >> PATH >> d_ask
-        d_ask >> Edge(label="image") >> d_img
-        d_ask >> Edge(label="text") >> d_txt
+        d_ask >> Edge(fontsize="26", label="image") >> d_img
+        d_ask >> Edge(fontsize="26", label="text") >> d_txt
         d_img >> BACK >> repl
         d_txt >> BACK >> repl
 
@@ -251,18 +272,25 @@ def build() -> None:
         cg_pc >> PATH >> s_cmd
         (
             s_path
-            >> Edge(label="outside root,\nor a credential", color="firebrick", style="bold")
+            >> Edge(
+                fontsize="26",
+                label="outside root,\nor a credential",
+                color="firebrick",
+                style="bold",
+            )
             >> s_deny
         )
         s_path >> PATH >> s_int
-        s_cmd >> Edge(label="ALLOW  read-only") >> s_act
-        s_cmd >> Edge(label="CONFIRM") >> s_int
-        s_cmd >> Edge(label="DENY", color="firebrick", style="bold") >> s_deny
-        s_int >> Edge(label="yes") >> s_act
-        s_int >> Edge(label="no", color="firebrick") >> s_declined
+        s_cmd >> Edge(fontsize="26", label="ALLOW  read-only") >> s_act
+        s_cmd >> Edge(fontsize="26", label="CONFIRM") >> s_int
+        s_cmd >> Edge(fontsize="26", label="DENY", color="firebrick", style="bold") >> s_deny
+        s_int >> Edge(fontsize="26", label="yes") >> s_act
+        s_int >> Edge(fontsize="26", label="no", color="firebrick") >> s_declined
         (
             s_act
-            >> Edge(label="resumes inside the tool", style="dashed", constraint="false")
+            >> Edge(
+                fontsize="26", label="resumes inside the tool", style="dashed", constraint="false"
+            )
             >> cg_read
         )
         cg_read >> PATH >> cg_write >> PATH >> cg_gate >> PATH >> gate
@@ -282,27 +310,60 @@ def build() -> None:
         # --- storage ----------------------------------------------------------
         (
             c_ingest
-            >> Edge(label="walk · skip backups,\nnested repos, credentials", color="royalblue")
+            >> Edge(
+                fontsize="26",
+                label="walk · skip backups,\nnested repos, credentials",
+                color="royalblue",
+            )
             >> man
         )
-        man >> Edge(label="changed files only", color="royalblue") >> chunker >> DATA >> embed
-        embed >> Edge(label="delete-then-add\nper source", color="royalblue") >> chroma
+        (
+            man
+            >> Edge(fontsize="26", label="changed files only", color="royalblue")
+            >> chunker
+            >> DATA
+            >> embed
+        )
+        (
+            embed
+            >> Edge(fontsize="26", label="delete-then-add\nper source", color="royalblue")
+            >> chroma
+        )
         c_remember >> DATA >> mem
-        shutdown >> Edge(label="session summary", color="royalblue", constraint="false") >> mem
+        (
+            shutdown
+            >> Edge(fontsize="26", label="session summary", color="royalblue", constraint="false")
+            >> mem
+        )
         mem >> DATA >> embed
         (
             chroma
-            >> Edge(label="recalled once,\nnext session", color="royalblue", style="dashed")
+            >> Edge(
+                fontsize="26",
+                label="recalled once,\nnext session",
+                color="royalblue",
+                style="dashed",
+            )
             >> sup
         )
 
         # --- contracts and out -------------------------------------------------
-        gate >> Edge(label="reads", color="grey", style="dotted", constraint="false") >> obs
+        (
+            gate
+            >> Edge(fontsize="26", label="reads", color="grey", style="dotted", constraint="false")
+            >> obs
+        )
         obs >> Edge(color="grey", style="dotted", constraint="false") >> state
         gate >> PATH >> tiers
         (
             tiers
-            >> Edge(label="streamed back", color="black", style="dashed", constraint="false")
+            >> Edge(
+                fontsize="26",
+                label="streamed back",
+                color="black",
+                style="dashed",
+                constraint="false",
+            )
             >> repl
         )
 
@@ -310,10 +371,22 @@ def build() -> None:
         sup >> TRACE >> lf
         (
             gate
-            >> Edge(label="confidence score", color="grey", style="dashed", constraint="false")
+            >> Edge(
+                fontsize="26",
+                label="confidence score",
+                color="grey",
+                style="dashed",
+                constraint="false",
+            )
             >> lf
         )
-        c_stats >> Edge(label="fetch_traces\nsession or window", color="grey", style="dashed") >> lf
+        (
+            c_stats
+            >> Edge(
+                fontsize="26", label="fetch_traces\nsession or window", color="grey", style="dashed"
+            )
+            >> lf
+        )
         lf >> TRACE >> lfdb
         # One edge, not nine. Ollama serves every model in the picture, and
         # drawing that swept nine dotted lines across the whole canvas to say
