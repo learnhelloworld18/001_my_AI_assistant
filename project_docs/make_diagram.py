@@ -47,13 +47,22 @@ OUT = Path(__file__).resolve().parent.parent / "architecture"
 PATH = Edge(color="black")
 STOP = Edge(color="firebrick", style="bold")
 DATA = Edge(color="royalblue")
-TRACE = Edge(color="grey", style="dashed")
-NOTE = Edge(color="grey", style="dotted")
+# constraint=false on anything that is not part of the forward flow. Without
+# it, a feedback edge (the answer returning to the REPL, a tool resuming, Ollama
+# serving nine nodes) drags its endpoints out of rank and the bands dissolve -
+# which is what made the first version read as scattered rather than as a flow.
+TRACE = Edge(color="grey", style="dashed", constraint="false")
+NOTE = Edge(color="grey", style="dotted", constraint="false")
+BACK = Edge(color="black", style="dashed", constraint="false")
+SERVE = Edge(color="darkgreen", style="dotted", constraint="false")
 
 GRAPH_ATTR = {
     "fontsize": "24",
     "bgcolor": "white",
     "splines": "spline",
+    # Ranks the graph by the forward flow only, so it reads top to bottom:
+    # you -> REPL -> router -> agents -> tools -> gate -> tier -> back to you.
+    "newrank": "true",
     # Wide, because these labels are four lines each - at 0.45 adjacent nodes
     # overlap and the text becomes unreadable where it matters most.
     "nodesep": "1.1",
@@ -80,7 +89,7 @@ def build() -> None:
         graph_attr=GRAPH_ATTR,
         outformat="png",
     ):
-        user = User("you\nterminal, any directory")
+        user = User("you\nany directory · the one you\nlaunch from is the project")
 
         with Cluster("REPL  ·  main.py"):
             repl = Python(
@@ -206,7 +215,8 @@ def build() -> None:
             lfdb = Docker("docker compose\nweb + postgres")
 
         # --- request path -----------------------------------------------------
-        user >> PATH >> repl >> PATH >> route
+        user >> Edge(label="  types a prompt", color="black", penwidth="2.5") >> repl
+        repl >> PATH >> route
         repl >> NOTE >> sess
         repl >> NOTE >> errors
 
@@ -223,8 +233,8 @@ def build() -> None:
         d_deny >> PATH >> d_ask
         d_ask >> Edge(label="image") >> d_img
         d_ask >> Edge(label="text") >> d_txt
-        d_img >> PATH >> repl
-        d_txt >> PATH >> repl
+        d_img >> BACK >> repl
+        d_txt >> BACK >> repl
 
         sup >> PATH >> cg_read
         sup >> PATH >> dg
@@ -250,7 +260,11 @@ def build() -> None:
         s_cmd >> Edge(label="DENY", color="firebrick", style="bold") >> s_deny
         s_int >> Edge(label="yes") >> s_act
         s_int >> Edge(label="no", color="firebrick") >> s_declined
-        s_act >> Edge(label="resumes inside the tool", style="dashed") >> cg_read
+        (
+            s_act
+            >> Edge(label="resumes inside the tool", style="dashed", constraint="false")
+            >> cg_read
+        )
         cg_read >> PATH >> cg_write >> PATH >> cg_gate >> PATH >> gate
 
         # --- docs -------------------------------------------------------------
@@ -274,7 +288,7 @@ def build() -> None:
         man >> Edge(label="changed files only", color="royalblue") >> chunker >> DATA >> embed
         embed >> Edge(label="delete-then-add\nper source", color="royalblue") >> chroma
         c_remember >> DATA >> mem
-        shutdown >> Edge(label="session summary", color="royalblue") >> mem
+        shutdown >> Edge(label="session summary", color="royalblue", constraint="false") >> mem
         mem >> DATA >> embed
         (
             chroma
@@ -283,17 +297,37 @@ def build() -> None:
         )
 
         # --- contracts and out -------------------------------------------------
-        gate >> NOTE >> obs
-        gate >> NOTE >> state
-        gate >> PATH >> tiers >> PATH >> repl
+        gate >> Edge(label="reads", color="grey", style="dotted", constraint="false") >> obs
+        obs >> Edge(color="grey", style="dotted", constraint="false") >> state
+        gate >> PATH >> tiers
+        (
+            tiers
+            >> Edge(label="streamed back", color="black", style="dashed", constraint="false")
+            >> repl
+        )
 
         # --- observability and serving ------------------------------------------
         sup >> TRACE >> lf
-        gate >> Edge(label="confidence score", color="grey", style="dashed") >> lf
+        (
+            gate
+            >> Edge(label="confidence score", color="grey", style="dashed", constraint="false")
+            >> lf
+        )
         c_stats >> Edge(label="fetch_traces\nsession or window", color="grey", style="dashed") >> lf
         lf >> TRACE >> lfdb
-        for node in (sup, cg_read, cg_write, dg, rg, general, embed, d_img, mem):
-            ollama >> Edge(color="darkgreen", style="dotted") >> node
+        # One edge, not nine. Ollama serves every model in the picture, and
+        # drawing that swept nine dotted lines across the whole canvas to say
+        # "yes, everything" - noise that crowded out the paths that differ.
+        (
+            ollama
+            >> Edge(
+                label="serves every model above",
+                color="darkgreen",
+                style="dotted",
+                constraint="false",
+            )
+            >> sup
+        )
 
 
 if __name__ == "__main__":
