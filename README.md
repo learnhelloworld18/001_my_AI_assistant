@@ -143,6 +143,12 @@ opinion of itself; every tier comes from something that measurably happened.
 
 ## Architecture
 
+![architecture](project_docs/architecture.png)
+
+Regenerate with `uv run python project_docs/make_diagram.py` (needs
+`brew install graphviz`). The same flow as a text diagram, which is easier to
+diff:
+
 ```mermaid
 flowchart TD
     User(["you type something"]) --> Meta{"starts with / ?"}
