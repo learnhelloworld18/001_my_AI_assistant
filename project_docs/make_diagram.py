@@ -1,11 +1,23 @@
-"""Generate the architecture diagram. Run: uv run python project_docs/make_diagram.py
+"""Generate the detailed architecture diagram.
 
-Kept as a script rather than a drawn image so the diagram cannot quietly go
-stale the way ARCHITECTURE.md's did - it is regenerated from a file that lives
-next to the code it describes, and a wrong edge here is a diff in review.
+    uv run python project_docs/make_diagram.py    ->  ./architecture.png
 
-Needs graphviz on the system (brew install graphviz) plus the `diagrams`
-dev dependency.
+Needs graphviz on the system (`brew install graphviz`) plus the `diagrams` dev
+dependency.
+
+A script rather than a drawn image, deliberately. ARCHITECTURE.md's hand-written
+diagram had gone stale in three ways before anyone noticed; a generated one
+turns a wrong edge into a diff in review, and lives beside the code it
+describes.
+
+The output is gitignored, which is what lets it be this detailed - it renders at
+full dpi without fighting pre-commit's 500KB large-file limit. The mermaid
+version in ARCHITECTURE.md is the one that renders on GitHub.
+
+Two layout facts, learned by trying them:
+  concentrate=true    breaks this graph outright ("rebuild_vlists: lead is null
+                      for rank 1") and produces no output at all
+  splines=ortho       routes lines the long way round; they cross constantly
 """
 
 from __future__ import annotations
@@ -16,152 +28,272 @@ from diagrams import Cluster, Diagram, Edge
 from diagrams.generic.storage import Storage
 from diagrams.onprem.client import User
 from diagrams.onprem.compute import Server
+from diagrams.onprem.container import Docker
 from diagrams.onprem.database import Postgresql
 from diagrams.onprem.monitoring import Grafana
 from diagrams.onprem.network import Internet
 from diagrams.programming.flowchart import Decision, Document, InputOutput
 from diagrams.programming.language import Python
 
-OUT = Path(__file__).parent / "architecture"
+# Repo root, not project_docs - it is the first thing you see in the folder.
+OUT = Path(__file__).resolve().parent.parent / "architecture"
 
-# Edge colours carry meaning, so the picture is readable without the legend:
-#   black  the normal request path
-#   red    something refused or declined
-#   blue   storage reads and writes
-#   grey   observability, which touches everything and explains nothing
+# Edge colour carries meaning, so the picture reads without the legend:
+#   black      the normal request path
+#   firebrick  refused or declined - the paths that must stay visible
+#   royalblue  storage reads and writes
+#   grey       observability and internal contracts
+#   darkgreen  model serving
 PATH = Edge(color="black")
 STOP = Edge(color="firebrick", style="bold")
 DATA = Edge(color="royalblue")
 TRACE = Edge(color="grey", style="dashed")
+NOTE = Edge(color="grey", style="dotted")
 
 GRAPH_ATTR = {
-    "fontsize": "22",
+    "fontsize": "24",
     "bgcolor": "white",
-    # curved rather than orthogonal: with this many cross-cluster edges, ortho
-    # routing sends lines the long way round and they cross constantly.
     "splines": "spline",
-    "nodesep": "0.4",
-    "ranksep": "1.1",
-    "pad": "0.5",
-    # Keeps the PNG under pre-commit's 500KB large-file limit. At the default
-    # dpi the same graph renders at 533KB and the commit is rejected.
-    "dpi": "70",
-    # concentrate=true was tried and breaks this graph outright:
-    # "rebuild_vlists: lead is null for rank 1", no output at all.
+    # Wide, because these labels are four lines each - at 0.45 adjacent nodes
+    # overlap and the text becomes unreadable where it matters most.
+    "nodesep": "1.1",
+    "ranksep": "1.3",
+    "pad": "0.6",
+    "dpi": "110",
 }
 
 
 def build() -> None:
-    """Draw it. Every label is a real module, model or collection name.
+    """Draw the whole thing.
 
-    Two things are deliberately *not* drawn. Ollama serves all eight models, and
-    Langfuse traces every node - edges for either would be a dozen lines across
-    the whole canvas saying "yes, everything". Both are shown as one node with a
-    caption instead. A diagram whose edges all mean "everything connects to
-    this" has stopped being a diagram.
+    Every label is a real module, model, constant or collection: if it is in
+    the picture it exists in the code, and the numbers are the ones actually
+    configured rather than round approximations.
     """
     with Diagram(
-        "myassistant - local-first multi-agent assistant",
+        "myassistant  ·  local-first multi-agent assistant  ·  detailed architecture",
         filename=str(OUT),
         show=False,
-        direction="LR",
+        # TB, not LR. With this many clustered nodes LR forces a 4400x8100
+        # column that is unreadable however much detail it carries.
+        direction="TB",
         graph_attr=GRAPH_ATTR,
-        # PNG only. The SVG that `diagrams` emits references its 29 icons by
-        # absolute path inside .venv, so it renders as broken images anywhere
-        # but the machine that made it - useless for a repo.
         outformat="png",
     ):
-        user = User("you")
+        user = User("you\nterminal, any directory")
 
         with Cluster("REPL  ·  main.py"):
-            repl = Python("prompt_toolkit\nstreams tokens as they arrive")
-            route = Decision("command?\nfile path?\nquestion?")
-            cmds = InputOutput(
-                "/help  /clear  /ingest\n/remember  /stats  /exit\nnever reach an agent"
+            repl = Python(
+                "prompt_toolkit\nFileHistory ~/.myassistant/history\n"
+                "completes only on '/'\nstreams tokens · subgraphs=True"
             )
-            shutdown = Python("/exit · Ctrl-D · SIGHUP\nflush, then summarise")
+            route = Decision("what is this line?\ncommand / file path / question")
+            sess = Document(
+                "Session\nhistory: list[BaseMessage]\nsession_id groups traces\n"
+                "recall runs once per run"
+            )
+            errors = InputOutput("per-turn try/except\none bad turn never\nkills the loop")
+            shutdown = Python(
+                "/exit · Ctrl-D · SIGHUP · SIGTERM\n1. flush Langfuse\n"
+                "2. summarise, 20s cap\nsecond signal exits at once"
+            )
+
+        with Cluster("meta-commands  ·  never reach an agent"):
+            c_help = InputOutput("/help")
+            c_clear = InputOutput("/clear\nwipes history,\nkeeps session_id")
+            c_ingest = InputOutput("/ingest <path>\n[notes|resume]")
+            c_remember = InputOutput("/remember <text>\nstored verbatim")
+            c_stats = InputOutput("/stats [all|24h|3d]\ndefaults to this session")
 
         with Cluster("dragged file  ·  dropped.py"):
-            drop_deny = Decision("denylist\n.env  *.pem  ~/.ssh")
-            drop_ask = Decision("confirm\nresolved path + size")
-            drop_read = Python("read_image.py  qwen2.5vl\nor the ingest loaders")
+            d_parse = Decision("shlex unescape\n'/a/my\\ file.png'\nresolves to a real file?")
+            d_deny = Decision("denylist\n.env  *.pem  *.key\n~/.ssh  ~/.aws  ~/.gnupg")
+            d_ask = Decision("confirm\nresolved path + size\ndefaults to no")
+            d_img = Python(
+                "read_image.py\ndownscale to 1600px\nqwen2.5vl:3b · keep_alive 2m\n"
+                "reply <120 chars = unreadable"
+            )
+            d_txt = Python("ingest loaders\nmd · txt · pdf · docx")
+            d_refused = InputOutput("refused\nno prompt shown")
 
-        sup = Server("supervisor\nlanggraph-supervisor\nqwen2.5:3b\nroutes only, never answers")
+        sup = Server(
+            "supervisor\nlanggraph-supervisor\nqwen2.5:3b · keep_alive 30m\n"
+            "parallel_tool_calls=False\noutput_mode=last_message\nInMemorySaver checkpointer"
+        )
 
-        with Cluster("coding_agent  ·  two models, one job each"):
-            c_read = Python("read\nqwen2.5:3b + tools\nproduces no prose")
-            c_write = Python("write\nqwen2.5-coder:7b\nno tools bound")
-            with Cluster("safety.py  ·  every action passes through"):
-                verdict = Decision("ALLOW · CONFIRM · DENY")
-                interrupt = Decision("interrupt()\npauses the whole graph")
-                act = Python("write the file\nrun the command")
-                denied = InputOutput("refused outright\nnever becomes a question")
+        with Cluster("coding_agent  ·  read then write  ·  the coder model cannot call tools"):
+            cg_read = Python("read node\nqwen2.5:3b + tools\nreturns evidence, no prose")
+            cg_write = Python("write node\nqwen2.5-coder:7b-q4_K_M\nno tools bound")
+            cg_gate = Decision("gate")
+            with Cluster("tools/coding.py"):
+                cg_list = Python("list_project_files")
+                cg_readf = Python("read_project_file\n20k char cap")
+                cg_pw = Python("propose_write")
+                cg_pc = Python("propose_command")
 
-        with Cluster("docs_agent  ·  qwen2.5:3b"):
-            docs = Python("docs_agent")
-            t_rag = Python("search_notes\nsearch_resume\nsearch_experience")
+        with Cluster("tools/safety.py  ·  PROJECT_ROOT = cwd captured at launch"):
+            s_path = Decision("safe_path()\nresolve() BEFORE the check\ncatches ../.. and symlinks")
+            s_cmd = Decision(
+                "check_command()\nper segment, strictest wins\nunknown = CONFIRM, never ALLOW"
+            )
+            s_int = Decision("interrupt()\npauses the whole graph\nresumes on the same line")
+            s_act = Python("write the file\nrun it · cwd=PROJECT_ROOT\n60s timeout")
+            s_deny = InputOutput(
+                "DENY\nsudo · rm -r · dd · chmod 777\ncurl|sh · fork bomb · .env\n"
+                "never becomes a question"
+            )
+            s_declined = InputOutput("declined\nand the agent is told")
 
-        with Cluster("research_agent  ·  qwen2.5:3b"):
-            research = Python("research_agent")
-            t_web = Python("web_search · Tavily\nvisit_webpage")
+        with Cluster("docs_agent  ·  qwen2.5:3b  ·  your own documents"):
+            dg = Python("docs_agent\nprompt: never fill a gap\nfrom memory")
+            dg_notes = Python("search_notes")
+            dg_res = Python("search_resume")
+            dg_exp = Python("search_experience\none query per CAREER_ROLE\ncoverage, not ranking")
+            dg_gate = Decision("gate\ntop_score >= 0.37")
 
-        general = Python("general_agent\nqwen2.5:3b\nno tools · always UNGROUNDED")
+        with Cluster("research_agent  ·  qwen2.5:3b  ·  the open web"):
+            rg = Python("research_agent\nprompt: snippets are\nnot evidence")
+            rg_search = Python("web_search · Tavily\nmax 5 · kind=search")
+            rg_visit = Python(
+                "visit_webpage\nBeautifulSoup + markdownify\nlooks_empty(): <400 chars,\n"
+                "consent walls, JS shells"
+            )
+            rg_gate = Decision("gate\nneeds an ok kind=page")
 
-        with Cluster("storage  ·  ~/.myassistant  ·  no server"):
-            man = Postgresql("manifest.db\nsource to content hash\nunchanged files cost nothing")
-            embed = Python("nomic-embed-text")
+        general = Python(
+            "general_agent\nqwen2.5:3b · no tools\nsingle call, no ReAct loop\nalways UNGROUNDED"
+        )
+
+        with Cluster("contracts"):
+            obs = Document(
+                "Observation (frozen)\nok · detail · content\nsource · metrics{kind,…}\n"
+                "render() -> [OK] / [TOOL FAILED]"
+            )
+            state = Document(
+                "AssistantState (TypedDict)\nmessages   add_messages\n"
+                "observations   operator.add\nconfidence · remaining_steps"
+            )
+
+        gate = Decision(
+            "evidence gate\ndeterministic · no model call\nany ok Observation\n"
+            "whose kind is not 'search'"
+        )
+        tiers = Document(
+            "HIGH          no tag shown\nLOW           thin evidence\n"
+            "UNGROUNDED    unverified\ntiers, never percentages"
+        )
+
+        with Cluster("storage  ·  ~/.myassistant  ·  embedded, no server"):
+            man = Postgresql(
+                "manifest.db (SQLite)\n(source, collection) -> hash\nhashes CONTENT, not mtime"
+            )
+            chunker = Python(
+                "RecursiveCharacterTextSplitter\n1000 chars · 150 overlap\nrole tagged from path"
+            )
+            embed = Python("nomic-embed-text\nOllamaEmbeddings")
             chroma = Storage("Chroma\ntech_notes\nresume_interview\nconversation_memory")
+            mem = Python(
+                "rag/memory.py\nsummaries, never transcripts\nrecall threshold 0.18\n"
+                "(documents use 0.37)"
+            )
 
-        gate = Decision("evidence gate\ndeterministic, no model call\nreads Observation.ok")
-        tiers = Document("HIGH  no tag shown\nLOW  thin evidence\nUNGROUNDED  unverified")
+        ollama = Server(
+            "Ollama · localhost:11434\nqwen2.5:3b · qwen2.5-coder:7b\nqwen2.5vl:3b · nomic-embed-text"
+        )
+        web = Internet("Tavily API\nand the open web")
+        with Cluster("observability  ·  optional, degrades to a no-op"):
+            lf = Grafana("Langfuse v2\nCallbackHandler on the graph\nauth_check once, cached")
+            lfdb = Docker("docker compose\nweb + postgres")
 
-        ollama = Server("Ollama\nserves every model\nlocal, no API key")
-        lf = Grafana("Langfuse  ·  optional\ntraces every node\n/stats reads it back")
-        web = Internet("the web")
-
-        # --- the request path -------------------------------------------------
+        # --- request path -----------------------------------------------------
         user >> PATH >> repl >> PATH >> route
-        route >> Edge(label="command") >> cmds
-        route >> Edge(label="file path") >> drop_deny
-        route >> Edge(label="question") >> sup
+        repl >> NOTE >> sess
+        repl >> NOTE >> errors
 
-        drop_deny >> STOP >> InputOutput("refused")
-        drop_deny >> PATH >> drop_ask >> PATH >> drop_read
+        route >> Edge(label="starts with /") >> c_help
+        route >> PATH >> c_clear
+        route >> PATH >> c_ingest
+        route >> PATH >> c_remember
+        route >> PATH >> c_stats
+        route >> Edge(label="a real file path") >> d_parse
+        route >> Edge(label="a question") >> sup
 
-        sup >> PATH >> c_read
-        sup >> PATH >> docs
-        sup >> PATH >> research
+        d_parse >> PATH >> d_deny
+        d_deny >> STOP >> d_refused
+        d_deny >> PATH >> d_ask
+        d_ask >> Edge(label="image") >> d_img
+        d_ask >> Edge(label="text") >> d_txt
+        d_img >> PATH >> repl
+        d_txt >> PATH >> repl
+
+        sup >> PATH >> cg_read
+        sup >> PATH >> dg
+        sup >> PATH >> rg
         sup >> PATH >> general
 
-        # --- coding_agent, and the fence --------------------------------------
-        c_read >> PATH >> verdict
-        verdict >> Edge(label="read-only") >> act
-        verdict >> Edge(label="changes state") >> interrupt
-        verdict >> Edge(label="sudo · rm -rf · .env", color="firebrick", style="bold") >> denied
-        interrupt >> Edge(label="yes") >> act
-        interrupt >> Edge(label="no", color="firebrick") >> denied
-        act >> Edge(label="resumes inside the tool", style="dashed") >> c_read
-        c_read >> PATH >> c_write
+        # --- coding, and the fence -------------------------------------------
+        cg_read >> PATH >> cg_list
+        cg_read >> PATH >> cg_readf
+        cg_read >> PATH >> cg_pw
+        cg_read >> PATH >> cg_pc
+        cg_readf >> PATH >> s_path
+        cg_pw >> PATH >> s_path
+        cg_pc >> PATH >> s_cmd
+        (
+            s_path
+            >> Edge(label="outside root,\nor a credential", color="firebrick", style="bold")
+            >> s_deny
+        )
+        s_path >> PATH >> s_int
+        s_cmd >> Edge(label="ALLOW  read-only") >> s_act
+        s_cmd >> Edge(label="CONFIRM") >> s_int
+        s_cmd >> Edge(label="DENY", color="firebrick", style="bold") >> s_deny
+        s_int >> Edge(label="yes") >> s_act
+        s_int >> Edge(label="no", color="firebrick") >> s_declined
+        s_act >> Edge(label="resumes inside the tool", style="dashed") >> cg_read
+        cg_read >> PATH >> cg_write >> PATH >> cg_gate >> PATH >> gate
 
-        # --- tools and storage ------------------------------------------------
-        research >> PATH >> t_web >> DATA >> web
-        docs >> PATH >> t_rag >> DATA >> embed
-        cmds >> Edge(label="/ingest", color="royalblue") >> man >> DATA >> embed
-        embed >> DATA >> chroma
-        shutdown >> Edge(label="session summary", color="royalblue") >> chroma
-        chroma >> Edge(label="recalled next session", color="royalblue", style="dashed") >> sup
+        # --- docs -------------------------------------------------------------
+        dg >> PATH >> dg_notes >> DATA >> embed
+        dg >> PATH >> dg_res >> DATA >> embed
+        dg >> PATH >> dg_exp >> DATA >> embed
+        dg >> PATH >> dg_gate >> PATH >> gate
 
-        # --- the gate, and back out -------------------------------------------
-        c_write >> PATH >> gate
-        docs >> PATH >> gate
-        research >> PATH >> gate
+        # --- research ---------------------------------------------------------
+        rg >> PATH >> rg_search >> DATA >> web
+        rg >> PATH >> rg_visit >> DATA >> web
+        rg >> PATH >> rg_gate >> PATH >> gate
         general >> PATH >> gate
-        gate >> PATH >> tiers >> PATH >> repl
-        drop_read >> PATH >> repl
 
-        # One edge each, not a fan-out - see the docstring.
+        # --- storage ----------------------------------------------------------
+        (
+            c_ingest
+            >> Edge(label="walk · skip backups,\nnested repos, credentials", color="royalblue")
+            >> man
+        )
+        man >> Edge(label="changed files only", color="royalblue") >> chunker >> DATA >> embed
+        embed >> Edge(label="delete-then-add\nper source", color="royalblue") >> chroma
+        c_remember >> DATA >> mem
+        shutdown >> Edge(label="session summary", color="royalblue") >> mem
+        mem >> DATA >> embed
+        (
+            chroma
+            >> Edge(label="recalled once,\nnext session", color="royalblue", style="dashed")
+            >> sup
+        )
+
+        # --- contracts and out -------------------------------------------------
+        gate >> NOTE >> obs
+        gate >> NOTE >> state
+        gate >> PATH >> tiers >> PATH >> repl
+
+        # --- observability and serving ------------------------------------------
+        sup >> TRACE >> lf
         gate >> Edge(label="confidence score", color="grey", style="dashed") >> lf
-        sup >> Edge(color="darkgreen", style="dotted") >> ollama
+        c_stats >> Edge(label="fetch_traces\nsession or window", color="grey", style="dashed") >> lf
+        lf >> TRACE >> lfdb
+        for node in (sup, cg_read, cg_write, dg, rg, general, embed, d_img, mem):
+            ollama >> Edge(color="darkgreen", style="dotted") >> node
 
 
 if __name__ == "__main__":

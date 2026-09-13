@@ -18,3 +18,10 @@ rag/manifest.db
 
 # Personal notes, not part of the project docs.
 project_docs/project_src_myassistant_structure.md
+
+# Generated diagrams. Regenerate with:
+#   uv run python project_docs/make_diagram.py
+# Not committed so the generator can render at full detail without fighting
+# pre-commit's 500KB large-file limit. The mermaid diagram in
+# project_docs/ARCHITECTURE.md is the version that renders on GitHub.
+*.png
