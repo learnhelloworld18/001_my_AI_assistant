@@ -44,22 +44,26 @@ OUT = Path(__file__).resolve().parent.parent / "architecture"
 #   royalblue  storage reads and writes
 #   grey       observability and internal contracts
 #   darkgreen  model serving
-PATH = Edge(color="black", fontsize="26")
+PATH = Edge(color="black", fontsize="26", penwidth="2")
 STOP = Edge(color="firebrick", style="bold", fontsize="26")
-DATA = Edge(color="royalblue", fontsize="26")
+DATA = Edge(color="royalblue", fontsize="26", penwidth="2")
 # constraint=false on anything that is not part of the forward flow. Without
 # it, a feedback edge (the answer returning to the REPL, a tool resuming, Ollama
 # serving nine nodes) drags its endpoints out of rank and the bands dissolve -
 # which is what made the first version read as scattered rather than as a flow.
-TRACE = Edge(color="grey", style="dashed", constraint="false", fontsize="26")
-NOTE = Edge(color="grey", style="dotted", constraint="false", fontsize="26")
-BACK = Edge(color="black", style="dashed", constraint="false", fontsize="26")
+TRACE = Edge(color="dimgrey", style="dashed", constraint="false", fontsize="26", penwidth="2.5")
+NOTE = Edge(color="dimgrey", style="dotted", constraint="false", fontsize="26", penwidth="2.5")
+BACK = Edge(color="black", style="dashed", constraint="false", fontsize="26", penwidth="2.5")
 SERVE = Edge(color="darkgreen", style="dotted", constraint="false", fontsize="26")
 
 # Nodes inside a cluster stack in the graph's direction, so a chain of four
 # becomes a tall narrow column. Passing LR to the cluster lays its own contents
 # out horizontally while the graph as a whole still reads top to bottom.
-WIDE = {"rankdir": "LR"}
+WIDE = {"rankdir": "LR", "margin": "90"}
+
+# Every cluster gets padding. Without it a node's label - which is wider than
+# its icon - spills past the cluster border and reads as belonging to nothing.
+BOX = {"margin": "90"}
 
 # Doubled from graphviz's defaults (graph 24, node 14, edge 14). At the sizes
 # this renders to, the default is unreadable without zooming twice.
@@ -84,8 +88,11 @@ GRAPH_ATTR = {
     # Scaled with the font. Doubling the text doubled the label widths, and
     # 1.1 - which was right at the old size - put them straight through each
     # other. Spacing has to move with type size, not be set once.
-    "nodesep": "3.2",
-    "ranksep": "2.2",
+    # Pulled back in from 3.2 once cluster margins took over the job of keeping
+    # labels apart. 3.2 was preventing overlap by brute force and left the
+    # canvas mostly empty.
+    "nodesep": "2.2",
+    "ranksep": "1.5",
     "pad": "0.6",
     "dpi": "110",
 }
@@ -151,7 +158,10 @@ def build() -> None:
             "parallel_tool_calls=False\noutput_mode=last_message\nInMemorySaver checkpointer"
         )
 
-        with Cluster("coding_agent  ·  read then write  ·  the coder model cannot call tools"):
+        with Cluster(
+            "coding_agent  ·  read then write  ·  the coder model cannot call tools",
+            graph_attr=BOX,
+        ):
             cg_read = Python("read node\nqwen2.5:3b + tools\nreturns evidence, no prose")
             cg_write = Python("write node\nqwen2.5-coder:7b-q4_K_M\nno tools bound")
             cg_gate = Decision("gate")
@@ -174,14 +184,14 @@ def build() -> None:
             )
             s_declined = InputOutput("declined\nand the agent is told")
 
-        with Cluster("docs_agent  ·  qwen2.5:3b  ·  your own documents"):
+        with Cluster("docs_agent  ·  qwen2.5:3b  ·  your own documents", graph_attr=BOX):
             dg = Python("docs_agent\nprompt: never fill a gap\nfrom memory")
             dg_notes = Python("search_notes")
             dg_res = Python("search_resume")
             dg_exp = Python("search_experience\none query per CAREER_ROLE\ncoverage, not ranking")
             dg_gate = Decision("gate\ntop_score >= 0.37")
 
-        with Cluster("research_agent  ·  qwen2.5:3b  ·  the open web"):
+        with Cluster("research_agent  ·  qwen2.5:3b  ·  the open web", graph_attr=BOX):
             rg = Python("research_agent\nprompt: snippets are\nnot evidence")
             rg_search = Python("web_search · Tavily\nmax 5 · kind=search")
             rg_visit = Python(
@@ -194,7 +204,7 @@ def build() -> None:
             "general_agent\nqwen2.5:3b · no tools\nsingle call, no ReAct loop\nalways UNGROUNDED"
         )
 
-        with Cluster("contracts", graph_attr=WIDE):
+        with Cluster("contracts  ·  what the evidence gate reads", graph_attr=WIDE):
             obs = Document(
                 "Observation (frozen)\nok · detail · content\nsource · metrics{kind,…}\n"
                 "render() -> [OK] / [TOOL FAILED]"
@@ -210,7 +220,8 @@ def build() -> None:
         )
         tiers = Document(
             "HIGH          no tag shown\nLOW           thin evidence\n"
-            "UNGROUNDED    unverified\ntiers, never percentages"
+            "UNGROUNDED    unverified\ntiers, never percentages\n"
+            "streamed back to the terminal"
         )
 
         with Cluster("storage  ·  ~/.myassistant  ·  embedded, no server", graph_attr=WIDE):
@@ -227,12 +238,34 @@ def build() -> None:
                 "(documents use 0.37)"
             )
 
-        ollama = Server(
-            "Ollama · localhost:11434\nqwen2.5:3b · qwen2.5-coder:7b\nqwen2.5vl:3b · nomic-embed-text"
-        )
+        # In a cluster of its own even though it is a single node: loose at the
+        # top rank it was laid over the neighbouring cluster's labels, because
+        # graphviz reserves space for a node's box but not for its caption.
+        with Cluster("model serving", graph_attr=BOX):
+            ollama = Server(
+                "Ollama\nlocalhost:11434\nserves every model here\n"
+                "qwen2.5:3b\nqwen2.5-coder:7b\nqwen2.5vl:3b\nnomic-embed-text"
+            )
         web = Internet("Tavily API\nand the open web")
+        # Two words per shape. Longer captions were tried and ran into each
+        # other: six nodes on one row means each caption owns very little
+        # width, and the legend only has to name the shape, not explain it.
+        with Cluster(
+            "legend  ·  what each shape means",
+            graph_attr={"rankdir": "LR", "margin": "90", "nodesep": "2.6"},
+        ):
+            Python("PROCESS\nsomething that runs")
+            Decision("DECISION\na branch")
+            InputOutput("IN / OUT\na command or a refusal")
+            Document("DATA\na record, not a step")
+            Storage("STORE\non disk")
+            Server("SERVER\nlong-running")
+
         with Cluster("observability  ·  optional, degrades to a no-op", graph_attr=WIDE):
-            lf = Grafana("Langfuse v2\nCallbackHandler on the graph\nauth_check once, cached")
+            lf = Grafana(
+                "Langfuse v2\nCallbackHandler on the graph\nauth_check once, cached\n"
+                "every span, plus the gate's confidence score"
+            )
             lfdb = Docker("docker compose\nweb + postgres")
 
         # --- request path -----------------------------------------------------
@@ -348,38 +381,24 @@ def build() -> None:
         )
 
         # --- contracts and out -------------------------------------------------
-        (
-            gate
-            >> Edge(fontsize="26", label="reads", color="grey", style="dotted", constraint="false")
-            >> obs
-        )
-        obs >> Edge(color="grey", style="dotted", constraint="false") >> state
+        # No edges into the contracts cluster, for the reason Ollama has none:
+        # it sits at the top rank and the gate sits at the bottom, so the line
+        # spanned the whole canvas and reserved an empty column the width of
+        # its own label. Contracts are a reference panel, like the legend - who
+        # reads them is in the cluster's title instead.
+        _ = (obs, state)
         gate >> PATH >> tiers
-        (
-            tiers
-            >> Edge(
-                fontsize="26",
-                label="streamed back",
-                color="black",
-                style="dashed",
-                constraint="false",
-            )
-            >> repl
-        )
+        # The answer's return to the REPL is not drawn. tiers sits at the last
+        # rank and repl at the first, so the edge was routed around the outside
+        # of everything and reserved a column the full height of the canvas for
+        # two words. Those two words are in the tiers caption now.
 
         # --- observability and serving ------------------------------------------
         sup >> TRACE >> lf
-        (
-            gate
-            >> Edge(
-                fontsize="26",
-                label="confidence score",
-                color="grey",
-                style="dashed",
-                constraint="false",
-            )
-            >> lf
-        )
+        # The gate's score reaches Langfuse the same way every span does, so it
+        # is named in the Langfuse caption rather than drawn: as its own edge
+        # from the last rank to the first it held open an empty block of canvas
+        # roughly the size of an agent cluster.
         (
             c_stats
             >> Edge(
@@ -388,19 +407,13 @@ def build() -> None:
             >> lf
         )
         lf >> TRACE >> lfdb
-        # One edge, not nine. Ollama serves every model in the picture, and
-        # drawing that swept nine dotted lines across the whole canvas to say
-        # "yes, everything" - noise that crowded out the paths that differ.
-        (
-            ollama
-            >> Edge(
-                label="serves every model above",
-                color="darkgreen",
-                style="dotted",
-                constraint="false",
-            )
-            >> sup
-        )
+        # No edge at all from Ollama. It serves every model in the picture, so
+        # the honest drawing is nine dotted lines - noise that crowds out the
+        # paths that actually differ. Collapsing it to one line to the
+        # supervisor was worse: with constraint=false across a canvas this
+        # wide, graphviz drew a line too faint to follow and the label read as
+        # floating text. The fact lives in the node's own caption instead.
+        _ = (ollama, sup)
 
 
 if __name__ == "__main__":
