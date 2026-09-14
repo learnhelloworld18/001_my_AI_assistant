@@ -143,29 +143,47 @@ opinion of itself; every tier comes from something that measurably happened.
 
 ## Architecture
 
-A detailed rendered diagram — every module, model, threshold and refusal path —
-is generated locally rather than committed, so it can be as large as it needs
-to be:
+There is a detailed diagram — every module, model, threshold and refusal path,
+61 boxes and 62 labelled edges. It is **generated from code**, so a wrong arrow
+is a diff in review rather than a picture nobody updated.
+
+```bash
+uv run python project_docs/make_drawio.py
+#   -> architecture.drawio          editable
+#   -> architecture_layout.png      preview, for checking it without a diagram tool
+```
+
+`architecture.drawio` is the one committed, because it is small XML rather than
+a bitmap. Open it in [draw.io](https://app.diagrams.net), or import it into
+Lucidchart with **File → Import** (`.drawio` is one of its supported formats —
+note that Lucid restricts *editing* an imported file to paid plans, while
+draw.io edits it for free).
+
+How to read it:
+
+| Shape | Means |
+|---|---|
+| rounded box | a module or model — something that runs |
+| diamond | a branch; the label is the question being asked |
+| parallelogram | a command, or a refusal |
+| document | a record or contract, not a step |
+| cylinder | persisted on disk |
+| hexagon | a long-running process |
+
+Line weight and colour carry meaning too: the supervisor's four hand-offs are
+heaviest, red is a refusal, blue is storage, dotted grey is tracing. Where one
+line crosses another it hops over it, so you can follow either.
+
+There is also a static PNG at 8000px from graphviz, if you want one picture to
+scroll around rather than a file to edit. It is gitignored, which is what lets
+it be that big:
 
 ```bash
 brew install graphviz
 uv run python project_docs/make_diagram.py   # -> ./architecture.png
 ```
 
-An **editable** version of the same architecture, for Lucidchart or draw.io:
-
-```bash
-uv run python project_docs/make_drawio.py    # -> ./architecture.drawio
-                                             #    ./architecture_layout.png
-```
-
-`architecture.drawio` is committed, since it is small XML rather than a
-bitmap. Import it with Lucidchart's File → Import (`.drawio` is a supported
-format), or open it directly in [draw.io](https://app.diagrams.net). The
-`_layout.png` beside it is a preview, so the layout can be checked without
-opening either tool.
-
-The same flow as a text diagram, which renders here on GitHub and diffs as
+And the same flow as a text diagram, which renders here on GitHub and diffs as
 text:
 
 ```mermaid

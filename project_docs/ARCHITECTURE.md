@@ -8,18 +8,53 @@ people who just want to use the thing.
 Where this differs from the first draft — and it differs a lot — the
 differences are the interesting part. They are listed at the bottom.
 
-For the fully detailed version — every tool, threshold, constant and refusal
-path — run `uv run python project_docs/make_diagram.py`, which writes
-`architecture.png` at the repo root. It is generated rather than committed
-(`*.png` is gitignored), which is what lets it render at 8000px without
-fighting pre-commit's large-file limit.
+## The generated diagrams
 
-`project_docs/make_drawio.py` writes the same architecture as
-`architecture.drawio` — editable in Lucidchart or draw.io, and committed,
-because it is small XML rather than a bitmap. It is not a second copy to keep
-in sync by hand so much as a second renderer: the graphviz version is laid out
-by an engine that cannot see label widths, while this one places boxes in
-explicit bands and asserts that none of them overlap.
+Two renderings of the detail — every tool, threshold, constant and refusal
+path. Both are generated, so neither can drift from the code the way a drawn
+picture does.
+
+| File | From | What it is for |
+|---|---|---|
+| `architecture.drawio` | `make_drawio.py` | editable; committed, since it is XML |
+| `architecture_layout.png` | `make_drawio.py` | a preview of the above, gitignored |
+| `architecture.png` | `make_diagram.py` | one static 8000px picture, gitignored |
+
+The `.drawio` is the one to reach for. It opens in draw.io and imports into
+Lucidchart, and being text it diffs — 61 boxes, 62 labelled edges, 13 panels.
+
+**Why a second renderer rather than one diagram.** `make_diagram.py` goes
+through graphviz via the `diagrams` library, which draws a node as an *icon*
+with its caption rendered **outside** the box. Graphviz reserves space for the
+icon and knows nothing about the text hanging under it, so a four-line caption
+is zero pixels wide as far as the layout engine is concerned — every overlap in
+that PNG traces back to this, and none of it is fixable except by nudging
+margins until it happens to look right.
+
+`make_drawio.py` puts the text inside the box and sets the width itself, then
+places boxes in explicit bands. Because the geometry is known rather than
+solved, it can be *checked* — and everything below fails the build rather than
+being left to the eye:
+
+| Check | What it rules out |
+|---|---|
+| `assert_no_overlap` | two boxes touching |
+| `assert_clusters_clean` | panels overlapping without nesting |
+| `assert_every_edge_labelled` | an arrow the reader has to guess at |
+| `assert_routes_clear` | a line crossing a box or panel it does not belong to |
+
+Routing is the part that earned the most work. A line that disappears behind a
+box takes its arrowhead with it and reads as a *missing* arrow, so routes leave
+and enter at box edges, keep 16px clear of anything they pass, and treat a
+cluster panel as solid unless one of their own endpoints lives in it. The
+simple three-leg router handles 37 of the 62; the remaining 25 go to A* over a
+visibility grid. Afterwards `separate()` pulls apart any two runs that ended up
+along the same line, and only ever moves interior segments — the ends are
+attached to a box.
+
+Labels follow the same rules as the lines: clear of boxes, panels, other
+labels, and other edges' lines, placed at the arrow they describe rather than
+always above the target.
 
 Below is the same architecture as text: it renders on GitHub without graphviz,
 and it diffs.
