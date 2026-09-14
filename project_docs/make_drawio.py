@@ -954,6 +954,30 @@ def _off_titles(mid: float, floor: float, clusters: dict[str, Cluster]) -> float
     return mid
 
 
+def obstacles_of(L: Layout) -> list[Node]:
+    """Every box, plus every cluster panel as a solid rectangle.
+
+    A cluster is a claim about membership: a line crossing research_agent's
+    panel on its way somewhere else reads as one of research_agent's lines.
+    The router only knew about boxes, so routes cut straight through panels
+    they had nothing to do with. Panels are obstacles now, and _skip() lets an
+    edge through the ones its own endpoints live in.
+    """
+    blockers = [Node(f"#{cid}", "", "process", c.x, c.y, c.w, c.h) for cid, c in L.clusters.items()]
+    return [*L.nodes.values(), *blockers]
+
+
+def _skip(a: Node, b: Node, clusters: dict[str, Cluster]) -> set[str]:
+    """The obstacles this edge is allowed to touch: its own ends, and any
+    panel one of them sits inside - it has to get out, or in."""
+    skip = {a.id, b.id}
+    for cid, c in clusters.items():
+        for n in (a, b):
+            if c.x <= n.x and n.right <= c.right and c.y <= n.y and n.bottom <= c.bottom:
+                skip.add(f"#{cid}")
+    return skip
+
+
 def _crosses(route: list[Point], nodes: list[Node], skip: set[str]) -> bool:
     """Does any leg of this route pass through a box that is not its own end?"""
     for (x0, y0), (x1, y1) in pairwise(route):
@@ -972,7 +996,9 @@ def _crosses(route: list[Point], nodes: list[Node], skip: set[str]) -> bool:
     return False
 
 
-def _grid_route(a: Node, b: Node, nodes: list[Node], pad: float = 16.0) -> list[Point] | None:
+def _grid_route(
+    a: Node, b: Node, nodes: list[Node], skip: set[str], pad: float = 16.0
+) -> list[Point] | None:
     """A* over a visibility grid, for the routes a straight slide cannot solve.
 
     _clear_run only moves the crossing leg up or down. That fails when a third
@@ -991,7 +1017,7 @@ def _grid_route(a: Node, b: Node, nodes: list[Node], pad: float = 16.0) -> list[
     """
     import heapq
 
-    obstacles = [n for n in nodes if n.id not in {a.id, b.id}]
+    obstacles = [n for n in nodes if n.id not in skip]
     ax, ay = a.x + a.w / 2, a.y + a.h / 2
     bx, by = b.x + b.w / 2, b.y + b.h / 2
     xs, ys = {ax, bx}, {ay, by}
@@ -1129,7 +1155,7 @@ def _simple_route(a: Node, b: Node, clusters: dict[str, Cluster], nodes: list[No
     """
     ax, bx = a.x + a.w / 2, b.x + b.w / 2
     ay, by = a.y + a.h / 2, b.y + b.h / 2
-    skip = {a.id, b.id}
+    skip = _skip(a, b, clusters)
     if b.y > a.bottom:  # b is below a
         mid = _off_titles((a.bottom + b.y) / 2, a.bottom + 2, clusters)
         mid = _clear_run(mid, a.bottom, b.y, ax, bx, nodes, skip)
@@ -1151,9 +1177,10 @@ def _route(a: Node, b: Node, clusters: dict[str, Cluster], nodes: list[Node]) ->
     almost every edge here and produces the plain L that reads best, so it
     stays the default and A* is the exception rather than the rule.
     """
+    skip = _skip(a, b, clusters)
     route = _simple_route(a, b, clusters, nodes)
-    if _crosses(route, nodes, {a.id, b.id}):
-        found = _grid_route(a, b, nodes)
+    if _crosses(route, nodes, skip):
+        found = _grid_route(a, b, nodes, skip)
         if found is not None and len(found) >= 2:
             return found
     return route
@@ -1358,9 +1385,7 @@ def to_png(L: Layout) -> None:
     crowded: list[str] = []
     labels: list[tuple[float, float, float, float, str, str]] = []
     # Routes up front, so each one knows what the others cross.
-    routes = [
-        _route(L.nodes[e.src], L.nodes[e.dst], L.clusters, list(L.nodes.values())) for e in L.edges
-    ]
+    routes = [_route(L.nodes[e.src], L.nodes[e.dst], L.clusters, obstacles_of(L)) for e in L.edges]
     verticals = [
         (i, x0, min(y0, y1), max(y0, y1))
         for i, r in enumerate(routes)
@@ -1422,12 +1447,14 @@ def assert_routes_clear(L: Layout) -> None:
     its arrowhead with it and reads as a missing arrow, which is exactly the
     bug this started as.
     """
-    nodes = list(L.nodes.values())
+    nodes = obstacles_of(L)
     bad = [
         f"{e.src}->{e.dst}"
         for e in L.edges
         if _crosses(
-            _route(L.nodes[e.src], L.nodes[e.dst], L.clusters, nodes), nodes, {e.src, e.dst}
+            _route(L.nodes[e.src], L.nodes[e.dst], L.clusters, nodes),
+            nodes,
+            _skip(L.nodes[e.src], L.nodes[e.dst], L.clusters),
         )
     ]
     if bad:
