@@ -293,30 +293,36 @@ def compose() -> Layout:
         yr,
         270,
     )
-    sess = L.node(
-        "sess",
-        "Session\nhistory: list[BaseMessage]\nsession_id groups traces\nrecall runs once per run",
-        "data",
-        repl.right + GAP_X,
-        yr,
-        250,
-    )
-    errors = L.node(
-        "errors",
-        "per-turn try/except\none bad turn never\nkills the loop",
-        "inout",
-        sess.right + GAP_X,
-        yr,
-        230,
-    )
     L.node(
         "shutdown",
         "/exit · Ctrl-D · SIGHUP · SIGTERM\n1. flush Langfuse\n"
         "2. summarise, 20s cap\nsecond signal exits at once",
         "process",
-        errors.right + GAP_X,
+        repl.right + GAP_X,
         yr,
         270,
+    )
+    # Under prompt_toolkit rather than beside it. Neither of these is a peer of
+    # the REPL in the flow - the Session is what it appends to and the
+    # try/except is what it runs inside - so a row below reads as "belongs to"
+    # where a row beside reads as "comes after". It also lets the two edges
+    # arrive from above, which is the only direction the preview renderer
+    # draws an arrowhead for correctly.
+    sess = L.node(
+        "sess",
+        "Session\nhistory: list[BaseMessage]\nsession_id groups traces\nrecall runs once per run",
+        "data",
+        0,
+        repl.bottom + GAP_Y,
+        250,
+    )
+    L.node(
+        "errors",
+        "per-turn try/except\none bad turn never\nkills the loop",
+        "inout",
+        sess.right + GAP_X,
+        sess.y,
+        230,
     )
     c_repl = L.cluster("c_repl", "REPL  ·  main.py", ["repl", "sess", "errors", "shutdown"])
     user.x = c_repl.x + (c_repl.w - user.w) / 2
