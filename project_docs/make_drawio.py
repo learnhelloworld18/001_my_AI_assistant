@@ -933,6 +933,126 @@ def _off_titles(mid: float, floor: float, clusters: dict[str, Cluster]) -> float
     return mid
 
 
+def _crosses(route: list[Point], nodes: list[Node], skip: set[str]) -> bool:
+    """Does any leg of this route pass through a box that is not its own end?"""
+    for (x0, y0), (x1, y1) in pairwise(route):
+        lo_x, hi_x = min(x0, x1), max(x0, x1)
+        lo_y, hi_y = min(y0, y1), max(y0, y1)
+        for n in nodes:
+            if n.id in skip:
+                continue
+            if n.x < hi_x and lo_x < n.right and n.y < hi_y and lo_y < n.bottom:
+                return True
+    return False
+
+
+def _grid_route(a: Node, b: Node, nodes: list[Node], pad: float = 16.0) -> list[Point] | None:
+    """A* over a visibility grid, for the routes a straight slide cannot solve.
+
+    _clear_run only moves the crossing leg up or down. That fails when a third
+    box sits squarely between source and target with no vertical room either
+    side of it - safe_path() -> DENY has check_command() directly in the way,
+    and no height clears it, because the obstacle spans the whole gap.
+
+    Those need to go AROUND, which means more than the three legs the simple
+    router emits. The grid is built from the obstacle edges themselves (every
+    box's sides, pushed out by `pad`), so it stays small - a few thousand cells
+    - and only the handful of edges that actually need it ever get here.
+
+    Turn cost is part of the search rather than a tidy-up afterwards: without
+    it A* returns staircases that are the same length as the clean L and look
+    like a mistake.
+    """
+    import heapq
+
+    obstacles = [n for n in nodes if n.id not in {a.id, b.id}]
+    ax, ay = a.x + a.w / 2, a.y + a.h / 2
+    bx, by = b.x + b.w / 2, b.y + b.h / 2
+    xs, ys = {ax, bx}, {ay, by}
+    for n in obstacles:
+        xs.update((n.x - pad, n.right + pad))
+        ys.update((n.y - pad, n.bottom + pad))
+    xv, yv = sorted(xs), sorted(ys)
+    xi = {v: i for i, v in enumerate(xv)}
+    yi = {v: i for i, v in enumerate(yv)}
+
+    def free(x0: float, y0: float, x1: float, y1: float) -> bool:
+        lo_x, hi_x = min(x0, x1), max(x0, x1)
+        lo_y, hi_y = min(y0, y1), max(y0, y1)
+        return not any(
+            n.x < hi_x and lo_x < n.right and n.y < hi_y and lo_y < n.bottom for n in obstacles
+        )
+
+    start, goal = (xi[ax], yi[ay]), (xi[bx], yi[by])
+    # State carries the axis last travelled, so a turn can be charged for.
+    begin = (start[0], start[1], -1)
+    dist: dict[tuple[int, int, int], float] = {begin: 0.0}
+    prev: dict[tuple[int, int, int], tuple[int, int, int] | None] = {begin: None}
+    seen: set[tuple[int, int, int]] = set()
+    heap: list[tuple[float, tuple[int, int, int]]] = [(0.0, begin)]
+    turn_cost = 60.0
+    end_state = None
+    while heap:
+        _, cur = heapq.heappop(heap)
+        if cur in seen:
+            continue
+        seen.add(cur)
+        i, j, axis = cur
+        if (i, j) == goal:
+            end_state = cur
+            break
+        for di, dj, nax in ((1, 0, 0), (-1, 0, 0), (0, 1, 1), (0, -1, 1)):
+            ni, nj = i + di, j + dj
+            if not (0 <= ni < len(xv) and 0 <= nj < len(yv)):
+                continue
+            if not free(xv[i], yv[j], xv[ni], yv[nj]):
+                continue
+            step = abs(xv[ni] - xv[i]) + abs(yv[nj] - yv[j])
+            cost = dist[cur] + step + (turn_cost if axis != -1 and nax != axis else 0.0)
+            nxt = (ni, nj, nax)
+            if cost < dist.get(nxt, float("inf")):
+                dist[nxt] = cost
+                prev[nxt] = cur
+                heur = abs(xv[ni] - bx) + abs(yv[nj] - by)
+                heapq.heappush(heap, (cost + heur, nxt))
+    if end_state is None:
+        return None
+
+    path: list[Point] = []
+    node: tuple[int, int, int] | None = end_state
+    while node is not None:
+        path.append((xv[node[0]], yv[node[1]]))
+        node = prev[node]
+    path.reverse()
+    return _tidy(path, a, b)
+
+
+def _tidy(path: list[Point], a: Node, b: Node) -> list[Point]:
+    """Drop collinear points, then clip the ends back to the box borders."""
+    merged: list[Point] = [path[0]]
+    for p in path[1:]:
+        if len(merged) >= 2:
+            (x0, y0), (x1, y1) = merged[-2], merged[-1]
+            if (x0 == x1 == p[0]) or (y0 == y1 == p[1]):
+                merged[-1] = p
+                continue
+        merged.append(p)
+
+    def clip(pts: list[Point], box: Node) -> list[Point]:
+        for i, ((x0, y0), (x1, y1)) in enumerate(pairwise(pts)):
+            inside1 = box.x <= x1 <= box.right and box.y <= y1 <= box.bottom
+            if inside1:
+                continue
+            if x0 == x1:
+                return [(x0, box.bottom if y1 > y0 else box.y), *pts[i + 1 :]]
+            return [(box.right if x1 > x0 else box.x, y0), *pts[i + 1 :]]
+        return pts
+
+    merged = clip(merged, a)
+    merged = clip(merged[::-1], b)[::-1]
+    return merged
+
+
 def _clear_run(
     mid: float, lo: float, hi: float, x0: float, x1: float, nodes: list[Node], skip: set[str]
 ) -> float:
@@ -962,7 +1082,7 @@ def _clear_run(
     return mid
 
 
-def _route(a: Node, b: Node, clusters: dict[str, Cluster], nodes: list[Node]) -> list[Point]:
+def _simple_route(a: Node, b: Node, clusters: dict[str, Cluster], nodes: list[Node]) -> list[Point]:
     """An orthogonal route from the EDGE of a to the EDGE of b.
 
     The previous version ran centre to centre, which drove every line straight
@@ -987,6 +1107,21 @@ def _route(a: Node, b: Node, clusters: dict[str, Cluster], nodes: list[Node]) ->
         return [(a.right, ay), (mid, ay), (mid, by), (b.x, by)]
     mid = (a.x + b.right) / 2  # side by side, b to the left
     return [(a.x, ay), (mid, ay), (mid, by), (b.right, by)]
+
+
+def _route(a: Node, b: Node, clusters: dict[str, Cluster], nodes: list[Node]) -> list[Point]:
+    """The simple three-leg route, or a searched one when that cuts a box.
+
+    Path-finding only where it is needed: the simple router is right for
+    almost every edge here and produces the plain L that reads best, so it
+    stays the default and A* is the exception rather than the rule.
+    """
+    route = _simple_route(a, b, clusters, nodes)
+    if _crosses(route, nodes, {a.id, b.id}):
+        found = _grid_route(a, b, nodes)
+        if found is not None and len(found) >= 2:
+            return found
+    return route
 
 
 def _arrowhead(d: object, route: list[Point], colour: str) -> None:
@@ -1105,7 +1240,8 @@ def _label_spot(
     # straight up and down from the midpoint until there is room. The label
     # ends up a little off its line, which reads fine and beats sitting on
     # top of a box's text.
-    (mx0, my0), (mx1, my1) = route[1], route[2]
+    mid_leg = max(pairwise(route), key=lambda g: abs(g[1][0] - g[0][0]) + abs(g[1][1] - g[0][1]))
+    (mx0, my0), (mx1, my1) = mid_leg
     cx, cy = (mx0 + mx1) / 2, (my0 + my1) / 2 - th
     for step in range(1, 20):
         for dy in (-step * (th + 6), step * (th + 6)):
@@ -1177,9 +1313,29 @@ def to_png(L: Layout) -> None:
         print(f"  {len(crowded)} labels had nowhere clear to go: {', '.join(crowded)}")
 
 
+def assert_routes_clear(L: Layout) -> None:
+    """No edge may pass through a box that is not one of its own ends.
+
+    Checked rather than hoped for: a line that disappears behind a box takes
+    its arrowhead with it and reads as a missing arrow, which is exactly the
+    bug this started as.
+    """
+    nodes = list(L.nodes.values())
+    bad = [
+        f"{e.src}->{e.dst}"
+        for e in L.edges
+        if _crosses(
+            _route(L.nodes[e.src], L.nodes[e.dst], L.clusters, nodes), nodes, {e.src, e.dst}
+        )
+    ]
+    if bad:
+        raise AssertionError(f"routes cutting through a box: {bad}")
+
+
 def main() -> None:
     L = compose()
     L.assert_no_overlap()
+    assert_routes_clear(L)
     L.assert_clusters_clean()
     L.assert_every_edge_labelled()
     # Trailing newline, so end-of-file-fixer does not rewrite the file on every
