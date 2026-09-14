@@ -77,6 +77,7 @@ GAP_X = 46  # between boxes side by side
 GAP_Y = 44  # between boxes stacked inside a cluster
 GAP_C = 70  # between clusters, horizontally
 GAP_B = 84  # between bands, vertically
+LEG = 160  # legend swatches - one width for all six, so the grid lines up
 MARGIN = 40
 # A cluster's border sits CPAD + TITLE_H above its first box, so a band that
 # starts GAP_B below the last one leaves only GAP_B minus that showing - 13px
@@ -364,6 +365,25 @@ def compose() -> Layout:
         ["stack_lc", "stack_lg", "stack_py"],
     )
 
+    # Top right, three across and two down, and smaller than the boxes it
+    # describes. A key is the last thing you need and the first thing you look
+    # for, so it wants to be findable and out of the way - not a band across
+    # the foot of the page the width of the flow itself. One uniform width for
+    # all six, so the grid lines up.
+    xl = c_stack.right + GAP_C
+    lp = L.node("l_proc", "PROCESS\nsomething that runs", "process", xl, ystack, LEG)
+    ld = L.node("l_dec", "DECISION\na branch", "decision", lp.right + GAP_X, ystack, LEG)
+    li = L.node("l_io", "IN / OUT\ncommand or refusal", "inout", ld.right + GAP_X, ystack, LEG)
+    y2 = max(lp.bottom, ld.bottom, li.bottom) + GAP_Y
+    L.node("l_data", "DATA\na record, not a step", "data", xl, y2, LEG)
+    L.node("l_store", "STORE\non disk", "store", ld.x, y2, LEG)
+    L.node("l_srv", "SERVER\nlong-running", "server", li.x, y2, LEG)
+    c_legend = L.cluster(
+        "c_legend",
+        "legend  ·  what each shape means",
+        ["l_proc", "l_dec", "l_io", "l_data", "l_store", "l_srv"],
+    )
+
     # --- band 0/1: you, and the REPL --------------------------------------
     # Placed at x=0 and slid into place at the end, once the widest band below
     # has decided how wide the canvas actually is.
@@ -372,7 +392,7 @@ def compose() -> Layout:
         "user\nany directory\nthe one you launch from is the project",
         "actor",
         0,
-        c_stack.bottom + GAP_B,
+        max(c_serve.bottom, c_stack.bottom, c_legend.bottom) + GAP_B,
         # Wide enough that the third line does not wrap: 38 characters at
         # CHAR_W needs 480px, and 300 * BOX is 510.
         300,
@@ -795,24 +815,7 @@ def compose() -> Layout:
         250,
     )
     L.node("lfdb", "docker compose\nweb + postgres", "store", lf.right + GAP_X, yref, 210)
-    c_obs = L.cluster("c_obs", "observability  ·  optional, degrades to a no-op", ["lf", "lfdb"])
-
-    # Three across, two down. In one row of six the legend was as wide as the
-    # whole flow above it and read as a band of the diagram rather than a key
-    # to it. A block is obviously an aside.
-    xl = c_obs.right + GAP_C
-    lp = L.node("l_proc", "PROCESS\nsomething that runs", "process", xl, yref, 170)
-    ld = L.node("l_dec", "DECISION\na branch", "decision", lp.right + GAP_X, yref, 140)
-    li = L.node("l_io", "IN / OUT\na command or a refusal", "inout", ld.right + GAP_X, yref, 170)
-    y2 = max(lp.bottom, ld.bottom, li.bottom) + GAP_Y
-    L.node("l_data", "DATA\na record, not a step", "data", xl, y2, 170)
-    L.node("l_store", "STORE\non disk", "store", ld.x, y2, 140)
-    L.node("l_srv", "SERVER\nlong-running", "server", li.x, y2, 170)
-    L.cluster(
-        "c_legend",
-        "legend  ·  what each shape means",
-        ["l_proc", "l_dec", "l_io", "l_data", "l_store", "l_srv"],
-    )
+    L.cluster("c_obs", "observability  ·  optional, degrades to a no-op", ["lf", "lfdb"])
 
     # Slide the top band so the decision sits over the branches it feeds,
     # left edge against meta-commands. Centred on the whole canvas it drifted
