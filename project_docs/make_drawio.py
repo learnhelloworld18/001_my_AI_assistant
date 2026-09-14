@@ -1375,8 +1375,10 @@ def _arrowhead(d: object, route: list[Point], colour: str) -> None:
     d.polygon(pts, fill=colour)  # type: ignore[attr-defined]
 
 
-def _above_target(a: Node, b: Node, clusters: dict[str, Cluster], th: float) -> Point:
-    """Where a label belongs if it can go there: just above what it points at.
+def _above_target(
+    a: Node, b: Node, clusters: dict[str, Cluster], th: float, route: list[Point]
+) -> Point:
+    """Where a label belongs if it can go there: at the arrow it describes.
 
     "starts with /" means something above the meta-commands box and nothing
     at all above the dragged-file box next to it. Left to the generic search
@@ -1387,7 +1389,21 @@ def _above_target(a: Node, b: Node, clusters: dict[str, Cluster], th: float) -> 
     When the edge comes from outside the target's cluster, the spot is above
     the cluster rather than above the box, so the label clears the cluster's
     title strip instead of fighting it.
+
+    "Above" is only right when the line ARRIVES from above. general_agent
+    reaches the gate from the right, so a spot above the gate was 250px from
+    the nearest point of its own line and the label read as floating free of
+    the diagram. For a sideways or upward arrival the label sits just back
+    along the final approach instead, which is the same idea - next to the
+    arrowhead it explains.
     """
+    (x0, y0), (x1, y1) = route[-2], route[-1]
+    if x0 != x1:  # arrives sideways
+        back = 52.0
+        return (x1 + back if x0 > x1 else x1 - back), y1 - th - 8
+    if y1 < y0:  # arrives from below
+        return x1, y1 + 14
+
     inner: Cluster | None = None
     for c in clusters.values():
         holds = c.x <= b.x and b.right <= c.right and c.y <= b.y and b.bottom <= c.bottom
@@ -1547,7 +1563,7 @@ def to_png(L: Layout) -> None:
         _draw_hopped(d, route, i, verticals, colour, STROKE_W.get(e.style, 2))
         _arrowhead(d, route, colour)
         tw = d.textlength(e.label, font=efont)
-        pref = _above_target(a, b, L.clusters, FONT_SIZE)
+        pref = _above_target(a, b, L.clusters, FONT_SIZE, route)
         # Its own line is not an obstacle - a label belongs on it.
         others = [r for j, rects in enumerate(segs) if j != i for r in rects]
         # Panels this edge has no business being inside, for the same reason
