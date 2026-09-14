@@ -954,6 +954,103 @@ def _off_titles(mid: float, floor: float, clusters: dict[str, Cluster]) -> float
     return mid
 
 
+def side_of(a: Node, b: Node) -> tuple[str, str]:
+    """Which side an edge leaves a by, and which side it enters b by."""
+    if b.y > a.bottom:
+        return "S", "N"
+    if a.y > b.bottom:
+        return "N", "S"
+    if b.x > a.right:
+        return "E", "W"
+    return "W", "E"
+
+
+def ports(L: Layout) -> dict[tuple[int, str], float]:
+    """Spread the edges meeting a box across that side instead of stacking.
+
+    Every edge aimed at the centre of its endpoints, so two edges arriving at
+    the same box from the same direction ran down the identical line and drew
+    over each other - /remember and the shutdown summary both reach memory.py,
+    and the pair looked like one line with a stray branch.
+
+    Each edge gets its own slot across the middle 60% of the side, so they stay
+    visibly separate and still clearly belong to the same box.
+    """
+    groups: dict[tuple[str, str], list[int]] = {}
+    for i, e in enumerate(L.edges):
+        sa, sb = side_of(L.nodes[e.src], L.nodes[e.dst])
+        groups.setdefault((e.src, sa), []).append(i)
+        groups.setdefault((e.dst, sb), []).append(i)
+    out: dict[tuple[int, str], float] = {}
+    for (nid, side), idxs in groups.items():
+        n = L.nodes[nid]
+        span = (n.w if side in "NS" else n.h) * 0.6
+        for j, i in enumerate(idxs):
+            out[(i, nid)] = ((j + 1) / (len(idxs) + 1) - 0.5) * span
+    return out
+
+
+LANE = 9.0
+
+
+def _overlap(s: tuple[Point, Point], t: tuple[Point, Point]) -> str | None:
+    """'v' or 'h' if these two segments lie along the same line and overlap."""
+    (ax0, ay0), (ax1, ay1) = s
+    (bx0, by0), (bx1, by1) = t
+    if ax0 == ax1 == bx0 == bx1:
+        lo1, hi1 = sorted((ay0, ay1))
+        lo2, hi2 = sorted((by0, by1))
+        return "v" if min(hi1, hi2) - max(lo1, lo2) > 20 else None
+    if ay0 == ay1 == by0 == by1:
+        lo1, hi1 = sorted((ax0, ax1))
+        lo2, hi2 = sorted((bx0, bx1))
+        return "h" if min(hi1, hi2) - max(lo1, lo2) > 20 else None
+    return None
+
+
+def separate(routes: list[list[Point]], obstacles: list[Node], skips: list[set[str]]) -> int:
+    """Pull apart runs that ended up along the same line.
+
+    Ports fix the stacking at a box's edge, but not this: A* hands two edges
+    the same corridor when it is the only clear one, and _tidy clips the port
+    offset away at the ends. /remember and the shutdown summary both reach
+    memory.py down the identical vertical, so the pair drew as one line with a
+    stray branch.
+
+    Only interior segments move. The first and last are attached to a box, and
+    sliding them sideways would detach the line from what it connects. A nudge
+    is kept only if the route still clears every obstacle, so separating lines
+    can never reintroduce a line through a box.
+    """
+    moves = 0
+    for _ in range(4):  # a nudge can create a fresh conflict; settle it
+        changed = False
+        for i, ri in enumerate(routes):
+            for j, rj in enumerate(routes):
+                if j <= i:
+                    continue
+                for si in range(len(ri) - 1):
+                    for sj in range(1, len(rj) - 2):  # interior only
+                        axis = _overlap((ri[si], ri[si + 1]), (rj[sj], rj[sj + 1]))
+                        if axis is None:
+                            continue
+                        for delta in (LANE, -LANE, 2 * LANE, -2 * LANE):
+                            trial = list(rj)
+                            for k in (sj, sj + 1):
+                                x, y = trial[k]
+                                trial[k] = (x + delta, y) if axis == "v" else (x, y + delta)
+                            if not _crosses(trial, obstacles, skips[j]):
+                                routes[j] = trial
+                                rj = trial
+                                moves += 1
+                                changed = True
+                                break
+                        break
+        if not changed:
+            break
+    return moves
+
+
 def obstacles_of(L: Layout) -> list[Node]:
     """Every box, plus every cluster panel as a solid rectangle.
 
@@ -997,7 +1094,13 @@ def _crosses(route: list[Point], nodes: list[Node], skip: set[str]) -> bool:
 
 
 def _grid_route(
-    a: Node, b: Node, nodes: list[Node], skip: set[str], pad: float = 16.0
+    a: Node,
+    b: Node,
+    nodes: list[Node],
+    skip: set[str],
+    pad: float = 16.0,
+    pa: float = 0.0,
+    pb: float = 0.0,
 ) -> list[Point] | None:
     """A* over a visibility grid, for the routes a straight slide cannot solve.
 
@@ -1018,8 +1121,11 @@ def _grid_route(
     import heapq
 
     obstacles = [n for n in nodes if n.id not in skip]
-    ax, ay = a.x + a.w / 2, a.y + a.h / 2
-    bx, by = b.x + b.w / 2, b.y + b.h / 2
+    horizontal = side_of(a, b)[0] in "NS"
+    ax = a.x + a.w / 2 + (pa if horizontal else 0.0)
+    ay = a.y + a.h / 2 + (0.0 if horizontal else pa)
+    bx = b.x + b.w / 2 + (pb if horizontal else 0.0)
+    by = b.y + b.h / 2 + (0.0 if horizontal else pb)
     xs, ys = {ax, bx}, {ay, by}
     for n in obstacles:
         xs.update((n.x - pad, n.right + pad))
@@ -1143,7 +1249,14 @@ def _clear_run(
     return mid
 
 
-def _simple_route(a: Node, b: Node, clusters: dict[str, Cluster], nodes: list[Node]) -> list[Point]:
+def _simple_route(
+    a: Node,
+    b: Node,
+    clusters: dict[str, Cluster],
+    nodes: list[Node],
+    pa: float = 0.0,
+    pb: float = 0.0,
+) -> list[Point]:
     """An orthogonal route from the EDGE of a to the EDGE of b.
 
     The previous version ran centre to centre, which drove every line straight
@@ -1153,8 +1266,13 @@ def _simple_route(a: Node, b: Node, clusters: dict[str, Cluster], nodes: list[No
     space between boxes. Leaving and entering at the edges puts the crossing
     leg in the gap, which is where a label can actually go.
     """
-    ax, bx = a.x + a.w / 2, b.x + b.w / 2
-    ay, by = a.y + a.h / 2, b.y + b.h / 2
+    # The offset runs along the side the edge leaves by: across the box for a
+    # vertical departure, down it for a sideways one.
+    across = side_of(a, b)[0] in "NS"
+    ax = a.x + a.w / 2 + (pa if across else 0.0)
+    bx = b.x + b.w / 2 + (pb if across else 0.0)
+    ay = a.y + a.h / 2 + (0.0 if across else pa)
+    by = b.y + b.h / 2 + (0.0 if across else pb)
     skip = _skip(a, b, clusters)
     if b.y > a.bottom:  # b is below a
         mid = _off_titles((a.bottom + b.y) / 2, a.bottom + 2, clusters)
@@ -1170,7 +1288,14 @@ def _simple_route(a: Node, b: Node, clusters: dict[str, Cluster], nodes: list[No
     return [(a.x, ay), (mid, ay), (mid, by), (b.right, by)]
 
 
-def _route(a: Node, b: Node, clusters: dict[str, Cluster], nodes: list[Node]) -> list[Point]:
+def _route(
+    a: Node,
+    b: Node,
+    clusters: dict[str, Cluster],
+    nodes: list[Node],
+    pa: float = 0.0,
+    pb: float = 0.0,
+) -> list[Point]:
     """The simple three-leg route, or a searched one when that cuts a box.
 
     Path-finding only where it is needed: the simple router is right for
@@ -1178,9 +1303,9 @@ def _route(a: Node, b: Node, clusters: dict[str, Cluster], nodes: list[Node]) ->
     stays the default and A* is the exception rather than the rule.
     """
     skip = _skip(a, b, clusters)
-    route = _simple_route(a, b, clusters, nodes)
+    route = _simple_route(a, b, clusters, nodes, pa, pb)
     if _crosses(route, nodes, skip):
-        found = _grid_route(a, b, nodes, skip)
+        found = _grid_route(a, b, nodes, skip, pa=pa, pb=pb)
         if found is not None and len(found) >= 2:
             return found
     return route
@@ -1385,7 +1510,20 @@ def to_png(L: Layout) -> None:
     crowded: list[str] = []
     labels: list[tuple[float, float, float, float, str, str]] = []
     # Routes up front, so each one knows what the others cross.
-    routes = [_route(L.nodes[e.src], L.nodes[e.dst], L.clusters, obstacles_of(L)) for e in L.edges]
+    port = ports(L)
+    obs = obstacles_of(L)
+    routes = [
+        _route(
+            L.nodes[e.src],
+            L.nodes[e.dst],
+            L.clusters,
+            obs,
+            port.get((i, e.src), 0.0),
+            port.get((i, e.dst), 0.0),
+        )
+        for i, e in enumerate(L.edges)
+    ]
+    separate(routes, obs, [_skip(L.nodes[e.src], L.nodes[e.dst], L.clusters) for e in L.edges])
     verticals = [
         (i, x0, min(y0, y1), max(y0, y1))
         for i, r in enumerate(routes)
@@ -1412,7 +1550,15 @@ def to_png(L: Layout) -> None:
         pref = _above_target(a, b, L.clusters, FONT_SIZE)
         # Its own line is not an obstacle - a label belongs on it.
         others = [r for j, rects in enumerate(segs) if j != i for r in rects]
-        lx, ly, placed = _label_spot(route, tw, FONT_SIZE, blocked + others, pref)
+        # Panels this edge has no business being inside, for the same reason
+        # its line may not cross them: "your documents" had settled in the
+        # bottom strip of the meta-commands panel, under /stats, and read as
+        # a caption belonging to that panel.
+        skip = _skip(a, b, L.clusters)
+        panels = [
+            (c.x, c.y, c.right, c.bottom) for cid, c in L.clusters.items() if f"#{cid}" not in skip
+        ]
+        lx, ly, placed = _label_spot(route, tw, FONT_SIZE, blocked + others + panels, pref)
         if not placed:
             crowded.append(f"{e.src}->{e.dst} ({e.label})")
         rect = (lx - tw / 2 - 3, ly - 2, lx + tw / 2 + 3, ly + FONT_SIZE)
@@ -1448,11 +1594,19 @@ def assert_routes_clear(L: Layout) -> None:
     bug this started as.
     """
     nodes = obstacles_of(L)
+    port = ports(L)
     bad = [
         f"{e.src}->{e.dst}"
-        for e in L.edges
+        for i, e in enumerate(L.edges)
         if _crosses(
-            _route(L.nodes[e.src], L.nodes[e.dst], L.clusters, nodes),
+            _route(
+                L.nodes[e.src],
+                L.nodes[e.dst],
+                L.clusters,
+                nodes,
+                port.get((i, e.src), 0.0),
+                port.get((i, e.dst), 0.0),
+            ),
             nodes,
             _skip(L.nodes[e.src], L.nodes[e.dst], L.clusters),
         )
