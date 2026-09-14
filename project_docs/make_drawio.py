@@ -903,7 +903,29 @@ def to_drawio(L: Layout) -> str:
 Point = tuple[float, float]
 
 
-def _route(a: Node, b: Node) -> list[Point]:
+def _off_titles(mid: float, floor: float, clusters: dict[str, Cluster]) -> float:
+    """Lift a crossing run off any cluster title it would otherwise strike out.
+
+    A route's horizontal run sits halfway between the two boxes it joins. When
+    the target is the first box inside a cluster, halfway lands in the gap
+    between the cluster's top border and that box - which is exactly where the
+    cluster's title is written, so the run drew a line straight through the
+    text. The fan-out from "what is this line?" did it to all three branch
+    titles at once, because they share a band and therefore share the height.
+
+    Halfway is only a default, so the run moves above the cluster instead.
+    `floor` is the y it must stay below (the source's own edge); if clearing
+    the title would push it past that there is no room, and it stays put.
+    """
+    for c in clusters.values():
+        if c.y - 4 <= mid <= c.y + Layout.TITLE_H + 4:
+            lifted = c.y - 10
+            if lifted > floor:
+                mid = lifted
+    return mid
+
+
+def _route(a: Node, b: Node, clusters: dict[str, Cluster]) -> list[Point]:
     """An orthogonal route from the EDGE of a to the EDGE of b.
 
     The previous version ran centre to centre, which drove every line straight
@@ -916,7 +938,7 @@ def _route(a: Node, b: Node) -> list[Point]:
     ax, bx = a.x + a.w / 2, b.x + b.w / 2
     ay, by = a.y + a.h / 2, b.y + b.h / 2
     if b.y > a.bottom:  # b is below a
-        mid = (a.bottom + b.y) / 2
+        mid = _off_titles((a.bottom + b.y) / 2, a.bottom + 2, clusters)
         return [(ax, a.bottom), (ax, mid), (bx, mid), (bx, b.y)]
     if a.y > b.bottom:  # b is above a - a feedback edge
         mid = (a.y + b.bottom) / 2
@@ -1083,7 +1105,7 @@ def to_png(L: Layout) -> None:
     for e in L.edges:
         a, b = L.nodes[e.src], L.nodes[e.dst]
         colour = ARROW_COLOURS.get(e.style, "#555555")
-        route = _route(a, b)
+        route = _route(a, b, L.clusters)
         d.line([p for xy in route for p in xy], fill=colour, width=2)
         _arrowhead(d, route, colour)
         tw = d.textlength(e.label, font=efont)
