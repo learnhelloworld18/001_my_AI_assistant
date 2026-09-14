@@ -13,9 +13,6 @@
         <mxCell id="c_meta" value="meta-commands  ·  never reach an agent" parent="1" vertex="1" style="rounded=0;whiteSpace=wrap;html=1;fillColor=#f7f9fc;strokeColor=#b7c3d6;dashed=1;verticalAlign=top;align=left;spacingLeft=10;spacingTop=4;fontSize=20;fontColor=#5b6878;">
           <mxGeometry x="955" y="848" width="431" height="736" as="geometry" />
         </mxCell>
-        <mxCell id="c_store" value="storage  ·  ~/.myassistant  ·  embedded, no server" parent="1" vertex="1" style="rounded=0;whiteSpace=wrap;html=1;fillColor=#f7f9fc;strokeColor=#b7c3d6;dashed=1;verticalAlign=top;align=left;spacingLeft=10;spacingTop=4;fontSize=20;fontColor=#5b6878;">
-          <mxGeometry x="1982" y="848" width="936" height="578" as="geometry" />
-        </mxCell>
         <mxCell id="c_tools" value="tools/coding.py" parent="1" vertex="1" style="rounded=0;whiteSpace=wrap;html=1;fillColor=#f7f9fc;strokeColor=#b7c3d6;dashed=1;verticalAlign=top;align=left;spacingLeft=10;spacingTop=4;fontSize=20;fontColor=#5b6878;">
           <mxGeometry x="20" y="1971" width="800" height="312" as="geometry" />
         </mxCell>
@@ -27,6 +24,9 @@
         </mxCell>
         <mxCell id="c_res" value="research_agent  ·  qwen2.5:3b  ·  the open web" parent="1" vertex="1" style="rounded=0;whiteSpace=wrap;html=1;fillColor=#f7f9fc;strokeColor=#b7c3d6;dashed=1;verticalAlign=top;align=left;spacingLeft=10;spacingTop=4;fontSize=20;fontColor=#5b6878;">
           <mxGeometry x="1716" y="1812" width="834" height="532" as="geometry" />
+        </mxCell>
+        <mxCell id="c_store" value="storage  ·  ~/.myassistant  ·  embedded, no server" parent="1" vertex="1" style="rounded=0;whiteSpace=wrap;html=1;fillColor=#f7f9fc;strokeColor=#b7c3d6;dashed=1;verticalAlign=top;align=left;spacingLeft=10;spacingTop=4;fontSize=20;fontColor=#5b6878;">
+          <mxGeometry x="3061" y="1812" width="936" height="578" as="geometry" />
         </mxCell>
         <mxCell id="c_safe" value="tools/safety.py  ·  PROJECT_ROOT = cwd captured at launch" parent="1" vertex="1" style="rounded=0;whiteSpace=wrap;html=1;fillColor=#f7f9fc;strokeColor=#b7c3d6;dashed=1;verticalAlign=top;align=left;spacingLeft=10;spacingTop=4;fontSize=20;fontColor=#5b6878;">
           <mxGeometry x="20" y="2479" width="1454" height="526" as="geometry" />
@@ -97,21 +97,6 @@
         <mxCell id="sup" value="supervisor&lt;br&gt;langgraph-supervisor&lt;br&gt;qwen2.5:3b · keep_alive 30m&lt;br&gt;parallel_tool_calls=False&lt;br&gt;output_mode=last_message&lt;br&gt;InMemorySaver checkpointer" parent="1" vertex="1" style="shape=hexagon;perimeter=hexagonPerimeter2;whiteSpace=wrap;html=1;fillColor=#e2f0f4;strokeColor=#2f7b8c;fontSize=20;verticalAlign=middle;align=center;">
           <mxGeometry x="1456" y="919" width="476" height="196" as="geometry" />
         </mxCell>
-        <mxCell id="man" value="manifest.db (SQLite)&lt;br&gt;(source, collection) -&gt; hash&lt;br&gt;hashes CONTENT, not mtime" parent="1" vertex="1" style="shape=cylinder3;boundedLbl=1;backgroundOutline=1;size=14;whiteSpace=wrap;html=1;fillColor=#fdeae6;strokeColor=#b4553a;fontSize=20;verticalAlign=middle;align=center;">
-          <mxGeometry x="2002" y="919" width="425" height="115" as="geometry" />
-        </mxCell>
-        <mxCell id="chunker" value="RecursiveCharacterTextSplitter&lt;br&gt;1000 chars · 150 overlap&lt;br&gt;role tagged from path" parent="1" vertex="1" style="rounded=1;arcSize=12;whiteSpace=wrap;html=1;fillColor=#e8eef9;strokeColor=#3b5f9e;fontSize=20;verticalAlign=middle;align=center;">
-          <mxGeometry x="2473" y="919" width="425" height="115" as="geometry" />
-        </mxCell>
-        <mxCell id="mem" value="rag/memory.py&lt;br&gt;summaries, never transcripts&lt;br&gt;recall threshold 0.18&lt;br&gt;(documents use 0.37)" parent="1" vertex="1" style="rounded=1;arcSize=12;whiteSpace=wrap;html=1;fillColor=#e8eef9;strokeColor=#3b5f9e;fontSize=20;verticalAlign=middle;align=center;">
-          <mxGeometry x="2002" y="1078" width="425" height="142" as="geometry" />
-        </mxCell>
-        <mxCell id="embed" value="nomic-embed-text&lt;br&gt;OllamaEmbeddings" parent="1" vertex="1" style="rounded=1;arcSize=12;whiteSpace=wrap;html=1;fillColor=#e8eef9;strokeColor=#3b5f9e;fontSize=20;verticalAlign=middle;align=center;">
-          <mxGeometry x="2473" y="1078" width="425" height="88" as="geometry" />
-        </mxCell>
-        <mxCell id="chroma" value="Chroma&lt;br&gt;tech_notes&lt;br&gt;resume_interview&lt;br&gt;conversation_memory" parent="1" vertex="1" style="shape=cylinder3;boundedLbl=1;backgroundOutline=1;size=14;whiteSpace=wrap;html=1;fillColor=#fdeae6;strokeColor=#b4553a;fontSize=20;verticalAlign=middle;align=center;">
-          <mxGeometry x="2002" y="1264" width="425" height="142" as="geometry" />
-        </mxCell>
         <mxCell id="cg_read" value="read node&lt;br&gt;qwen2.5:3b + tools&lt;br&gt;returns evidence, no prose" parent="1" vertex="1" style="rounded=1;arcSize=12;whiteSpace=wrap;html=1;fillColor=#e8eef9;strokeColor=#3b5f9e;fontSize=20;verticalAlign=middle;align=center;">
           <mxGeometry x="40" y="1883" width="391" height="115" as="geometry" />
         </mxCell>
@@ -165,6 +150,21 @@
         </mxCell>
         <mxCell id="web" value="Tavily API&lt;br&gt;and the open web" parent="1" vertex="1" style="ellipse;shape=cloud;whiteSpace=wrap;html=1;fillColor=#f2f2f2;strokeColor=#666666;fontSize=20;verticalAlign=middle;align=center;">
           <mxGeometry x="2620" y="2069" width="357" height="88" as="geometry" />
+        </mxCell>
+        <mxCell id="man" value="manifest.db (SQLite)&lt;br&gt;(source, collection) -&gt; hash&lt;br&gt;hashes CONTENT, not mtime" parent="1" vertex="1" style="shape=cylinder3;boundedLbl=1;backgroundOutline=1;size=14;whiteSpace=wrap;html=1;fillColor=#fdeae6;strokeColor=#b4553a;fontSize=20;verticalAlign=middle;align=center;">
+          <mxGeometry x="3081" y="1883" width="425" height="115" as="geometry" />
+        </mxCell>
+        <mxCell id="chunker" value="RecursiveCharacterTextSplitter&lt;br&gt;1000 chars · 150 overlap&lt;br&gt;role tagged from path" parent="1" vertex="1" style="rounded=1;arcSize=12;whiteSpace=wrap;html=1;fillColor=#e8eef9;strokeColor=#3b5f9e;fontSize=20;verticalAlign=middle;align=center;">
+          <mxGeometry x="3552" y="1883" width="425" height="115" as="geometry" />
+        </mxCell>
+        <mxCell id="mem" value="rag/memory.py&lt;br&gt;summaries, never transcripts&lt;br&gt;recall threshold 0.18&lt;br&gt;(documents use 0.37)" parent="1" vertex="1" style="rounded=1;arcSize=12;whiteSpace=wrap;html=1;fillColor=#e8eef9;strokeColor=#3b5f9e;fontSize=20;verticalAlign=middle;align=center;">
+          <mxGeometry x="3081" y="2042" width="425" height="142" as="geometry" />
+        </mxCell>
+        <mxCell id="embed" value="nomic-embed-text&lt;br&gt;OllamaEmbeddings" parent="1" vertex="1" style="rounded=1;arcSize=12;whiteSpace=wrap;html=1;fillColor=#e8eef9;strokeColor=#3b5f9e;fontSize=20;verticalAlign=middle;align=center;">
+          <mxGeometry x="3552" y="2042" width="425" height="88" as="geometry" />
+        </mxCell>
+        <mxCell id="chroma" value="Chroma&lt;br&gt;tech_notes&lt;br&gt;resume_interview&lt;br&gt;conversation_memory" parent="1" vertex="1" style="shape=cylinder3;boundedLbl=1;backgroundOutline=1;size=14;whiteSpace=wrap;html=1;fillColor=#fdeae6;strokeColor=#b4553a;fontSize=20;verticalAlign=middle;align=center;">
+          <mxGeometry x="3081" y="2228" width="425" height="142" as="geometry" />
         </mxCell>
         <mxCell id="s_path" value="safe_path()&lt;br&gt;resolve() BEFORE the check&lt;br&gt;catches ../.. and symlinks" parent="1" vertex="1" style="rhombus;whiteSpace=wrap;html=1;fillColor=#fdf3d8;strokeColor=#b5892a;fontSize=20;verticalAlign=middle;align=center;">
           <mxGeometry x="40" y="2550" width="446" height="196" as="geometry" />

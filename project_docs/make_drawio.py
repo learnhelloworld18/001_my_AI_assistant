@@ -423,48 +423,8 @@ def compose() -> Layout:
         280,
     )
 
-    xs = sup.right + GAP_C
-    man = L.node(
-        "man",
-        "manifest.db (SQLite)\n(source, collection) -> hash\nhashes CONTENT, not mtime",
-        "store",
-        xs,
-        yb,
-        250,
-    )
-    chunker = L.node(
-        "chunker",
-        "RecursiveCharacterTextSplitter\n1000 chars · 150 overlap\nrole tagged from path",
-        "process",
-        man.right + GAP_X,
-        yb,
-        250,
-    )
-    mem = L.node(
-        "mem",
-        "rag/memory.py\nsummaries, never transcripts\nrecall threshold 0.18\n(documents use 0.37)",
-        "process",
-        xs,
-        man.bottom + GAP_Y,
-        250,
-    )
-    L.node("embed", "nomic-embed-text\nOllamaEmbeddings", "process", chunker.x, mem.y, 250)
-    L.node(
-        "chroma",
-        "Chroma\ntech_notes\nresume_interview\nconversation_memory",
-        "store",
-        xs,
-        mem.bottom + GAP_Y,
-        250,
-    )
-    c_store = L.cluster(
-        "c_store",
-        "storage  ·  ~/.myassistant  ·  embedded, no server",
-        ["man", "chunker", "mem", "embed", "chroma"],
-    )
-
     # --- band 3: the agents, one job each ----------------------------------
-    ya = max(c_drop.bottom, c_meta.bottom, sup.bottom, c_store.bottom) + GAP_B
+    ya = max(c_drop.bottom, c_meta.bottom, sup.bottom) + GAP_B
 
     cg_read = L.node(
         "cg_read",
@@ -559,8 +519,56 @@ def compose() -> Layout:
     )
     L.node("web", "Tavily API\nand the open web", "cloud", xg, general.bottom + GAP_Y, 210)
 
+    # A band down from the branch row, not level with it. Sitting beside
+    # dragged-file / meta-commands / supervisor it read as a fourth answer
+    # to "command, file path or question?", which is not what it is: it is
+    # what /ingest writes to and what docs_agent reads from, so it belongs
+    # level with the agents that use it.
+    xs = max(general.right, L.nodes["web"].right) + GAP_C
+    man = L.node(
+        "man",
+        "manifest.db (SQLite)\n(source, collection) -> hash\nhashes CONTENT, not mtime",
+        "store",
+        xs,
+        ya,
+        250,
+    )
+    chunker = L.node(
+        "chunker",
+        "RecursiveCharacterTextSplitter\n1000 chars · 150 overlap\nrole tagged from path",
+        "process",
+        man.right + GAP_X,
+        ya,
+        250,
+    )
+    mem = L.node(
+        "mem",
+        "rag/memory.py\nsummaries, never transcripts\nrecall threshold 0.18\n(documents use 0.37)",
+        "process",
+        xs,
+        man.bottom + GAP_Y,
+        250,
+    )
+    L.node("embed", "nomic-embed-text\nOllamaEmbeddings", "process", chunker.x, mem.y, 250)
+    L.node(
+        "chroma",
+        "Chroma\ntech_notes\nresume_interview\nconversation_memory",
+        "store",
+        xs,
+        mem.bottom + GAP_Y,
+        250,
+    )
+    c_store = L.cluster(
+        "c_store",
+        "storage  ·  ~/.myassistant  ·  embedded, no server",
+        ["man", "chunker", "mem", "embed", "chroma"],
+    )
+
     # --- band 4: the fence around the only agent that changes state --------
-    ysf = max(c_code.bottom, c_docs.bottom, c_res.bottom, L.nodes["web"].bottom) + GAP_B
+    ysf = (
+        max(c_code.bottom, c_docs.bottom, c_res.bottom, L.nodes["web"].bottom, c_store.bottom)
+        + GAP_B
+    )
 
     s_path = L.node(
         "s_path",
@@ -925,7 +933,36 @@ def _off_titles(mid: float, floor: float, clusters: dict[str, Cluster]) -> float
     return mid
 
 
-def _route(a: Node, b: Node, clusters: dict[str, Cluster]) -> list[Point]:
+def _clear_run(
+    mid: float, lo: float, hi: float, x0: float, x1: float, nodes: list[Node], skip: set[str]
+) -> float:
+    """Slide a crossing run to a height where it does not cut through a box.
+
+    The router picks the two boxes an edge joins and ignores everything in
+    between, so a run could cross a third box entirely - /remember -> memory.py
+    ran its horizontal leg straight through Chroma. Nodes paint over edges, so
+    the line died at Chroma's border and its arrowhead was left stranded on the
+    far side, looking like a missing arrow rather than a covered one.
+
+    Searches outward from the halfway point, within the gap the route has to
+    work in, and keeps halfway if nothing is clear.
+    """
+    left, right = min(x0, x1), max(x0, x1)
+    boxes = [n for n in nodes if n.id not in skip]
+
+    def crosses(y: float) -> bool:
+        return any(n.x < right and left < n.right and n.y < y < n.bottom for n in boxes)
+
+    if not crosses(mid):
+        return mid
+    for step in range(1, 40):
+        for cand in (mid - step * 6, mid + step * 6):
+            if lo + 4 <= cand <= hi - 4 and not crosses(cand):
+                return cand
+    return mid
+
+
+def _route(a: Node, b: Node, clusters: dict[str, Cluster], nodes: list[Node]) -> list[Point]:
     """An orthogonal route from the EDGE of a to the EDGE of b.
 
     The previous version ran centre to centre, which drove every line straight
@@ -937,11 +974,13 @@ def _route(a: Node, b: Node, clusters: dict[str, Cluster]) -> list[Point]:
     """
     ax, bx = a.x + a.w / 2, b.x + b.w / 2
     ay, by = a.y + a.h / 2, b.y + b.h / 2
+    skip = {a.id, b.id}
     if b.y > a.bottom:  # b is below a
         mid = _off_titles((a.bottom + b.y) / 2, a.bottom + 2, clusters)
+        mid = _clear_run(mid, a.bottom, b.y, ax, bx, nodes, skip)
         return [(ax, a.bottom), (ax, mid), (bx, mid), (bx, b.y)]
     if a.y > b.bottom:  # b is above a - a feedback edge
-        mid = (a.y + b.bottom) / 2
+        mid = _clear_run((a.y + b.bottom) / 2, b.bottom, a.y, ax, bx, nodes, skip)
         return [(ax, a.y), (ax, mid), (bx, mid), (bx, b.bottom)]
     if b.x > a.right:  # side by side, b to the right
         mid = (a.right + b.x) / 2
@@ -1105,7 +1144,7 @@ def to_png(L: Layout) -> None:
     for e in L.edges:
         a, b = L.nodes[e.src], L.nodes[e.dst]
         colour = ARROW_COLOURS.get(e.style, "#555555")
-        route = _route(a, b, L.clusters)
+        route = _route(a, b, L.clusters, list(L.nodes.values()))
         d.line([p for xy in route for p in xy], fill=colour, width=2)
         _arrowhead(d, route, colour)
         tw = d.textlength(e.label, font=efont)
