@@ -1,11 +1,14 @@
 <mxfile host="app.diagrams.net" type="device">
   <diagram name="architecture" id="architecture">
-    <mxGraphModel dx="1200" dy="800" grid="1" gridSize="10" guides="1" tooltips="1" connect="1" arrows="1" fold="1" page="1" pageScale="1" pageWidth="4279" pageHeight="4121" math="0" shadow="0">
+    <mxGraphModel dx="1200" dy="800" grid="1" gridSize="10" guides="1" tooltips="1" connect="1" arrows="1" fold="1" page="1" pageScale="1" pageWidth="4036" pageHeight="4234" math="0" shadow="0">
       <root>
         <mxCell id="0" />
         <mxCell id="1" parent="0" />
+        <mxCell id="c_serve" value="model serving" parent="1" vertex="1" style="rounded=0;whiteSpace=wrap;html=1;fillColor=#f7f9fc;strokeColor=#b7c3d6;dashed=1;verticalAlign=top;align=left;spacingLeft=10;spacingTop=4;fontSize=20;fontColor=#5b6878;">
+          <mxGeometry x="20" y="0" width="465" height="233" as="geometry" />
+        </mxCell>
         <mxCell id="c_stack" value="the stack  ·  which library is responsible for what" parent="1" vertex="1" style="rounded=0;whiteSpace=wrap;html=1;fillColor=#f7f9fc;strokeColor=#b7c3d6;dashed=1;verticalAlign=top;align=left;spacingLeft=10;spacingTop=4;fontSize=20;fontColor=#5b6878;">
-          <mxGeometry x="20" y="0" width="1764" height="287" as="geometry" />
+          <mxGeometry x="535" y="0" width="1764" height="287" as="geometry" />
         </mxCell>
         <mxCell id="c_repl" value="REPL  ·  main.py" parent="1" vertex="1" style="rounded=0;whiteSpace=wrap;html=1;fillColor=#f7f9fc;strokeColor=#b7c3d6;dashed=1;verticalAlign=top;align=left;spacingLeft=10;spacingTop=4;fontSize=20;fontColor=#5b6878;">
           <mxGeometry x="506" y="570" width="1407" height="419" as="geometry" />
@@ -37,23 +40,23 @@
         <mxCell id="c_contract" value="contracts  ·  what the evidence gate reads" parent="1" vertex="1" style="rounded=0;whiteSpace=wrap;html=1;fillColor=#f7f9fc;strokeColor=#b7c3d6;dashed=1;verticalAlign=top;align=left;spacingLeft=10;spacingTop=4;fontSize=20;fontColor=#5b6878;">
           <mxGeometry x="20" y="3822" width="936" height="233" as="geometry" />
         </mxCell>
-        <mxCell id="c_serve" value="model serving" parent="1" vertex="1" style="rounded=0;whiteSpace=wrap;html=1;fillColor=#f7f9fc;strokeColor=#b7c3d6;dashed=1;verticalAlign=top;align=left;spacingLeft=10;spacingTop=4;fontSize=20;fontColor=#5b6878;">
-          <mxGeometry x="1006" y="3822" width="465" height="233" as="geometry" />
-        </mxCell>
         <mxCell id="c_obs" value="observability  ·  optional, degrades to a no-op" parent="1" vertex="1" style="rounded=0;whiteSpace=wrap;html=1;fillColor=#f7f9fc;strokeColor=#b7c3d6;dashed=1;verticalAlign=top;align=left;spacingLeft=10;spacingTop=4;fontSize=20;fontColor=#5b6878;">
-          <mxGeometry x="1521" y="3822" width="868" height="260" as="geometry" />
+          <mxGeometry x="1006" y="3822" width="868" height="260" as="geometry" />
         </mxCell>
         <mxCell id="c_legend" value="legend  ·  what each shape means" parent="1" vertex="1" style="rounded=0;whiteSpace=wrap;html=1;fillColor=#f7f9fc;strokeColor=#b7c3d6;dashed=1;verticalAlign=top;align=left;spacingLeft=10;spacingTop=4;fontSize=20;fontColor=#5b6878;">
-          <mxGeometry x="2439" y="3822" width="1800" height="241" as="geometry" />
+          <mxGeometry x="1924" y="3822" width="1008" height="373" as="geometry" />
+        </mxCell>
+        <mxCell id="ollama" value="Ollama · localhost:11434&lt;br&gt;serves every model here&lt;br&gt;qwen2.5:3b · qwen2.5-coder:7b&lt;br&gt;qwen2.5vl:3b · nomic-embed-text" parent="1" vertex="1" style="shape=hexagon;perimeter=hexagonPerimeter2;whiteSpace=wrap;html=1;fillColor=#e2f0f4;strokeColor=#2f7b8c;fontSize=20;verticalAlign=middle;align=center;">
+          <mxGeometry x="40" y="71" width="425" height="142" as="geometry" />
         </mxCell>
         <mxCell id="stack_lc" value="LangChain&lt;br&gt;• @tool · InjectedToolCallId&lt;br&gt;• ChatOllama · OllamaEmbeddings&lt;br&gt;• langchain-tavily · langchain-chroma&lt;br&gt;• document loaders (pdf · docx)" parent="1" vertex="1" style="rounded=1;arcSize=12;whiteSpace=wrap;html=1;fillColor=#e8eef9;strokeColor=#3b5f9e;fontSize=20;verticalAlign=middle;align=left;spacingLeft=14;">
-          <mxGeometry x="40" y="71" width="544" height="169" as="geometry" />
+          <mxGeometry x="555" y="71" width="544" height="169" as="geometry" />
         </mxCell>
         <mxCell id="stack_lg" value="LangGraph&lt;br&gt;• StateGraph(AssistantState) per agent&lt;br&gt;• create_react_agent for tool loops&lt;br&gt;• Command · interrupt() · RemainingSteps&lt;br&gt;• InMemorySaver checkpointer&lt;br&gt;• langgraph-supervisor routes" parent="1" vertex="1" style="rounded=1;arcSize=12;whiteSpace=wrap;html=1;fillColor=#e8eef9;strokeColor=#3b5f9e;fontSize=20;verticalAlign=middle;align=left;spacingLeft=14;">
-          <mxGeometry x="630" y="71" width="544" height="196" as="geometry" />
+          <mxGeometry x="1145" y="71" width="544" height="196" as="geometry" />
         </mxCell>
         <mxCell id="stack_py" value="Pydantic + typing&lt;br&gt;• Verdict is a BaseModel&lt;br&gt;• graph state is a TypedDict, not a model&lt;br&gt;• Collection is a StrEnum" parent="1" vertex="1" style="rounded=1;arcSize=12;whiteSpace=wrap;html=1;fillColor=#e8eef9;strokeColor=#3b5f9e;fontSize=20;verticalAlign=middle;align=left;spacingLeft=14;">
-          <mxGeometry x="1220" y="71" width="544" height="142" as="geometry" />
+          <mxGeometry x="1735" y="71" width="544" height="142" as="geometry" />
         </mxCell>
         <mxCell id="user" value="user&lt;br&gt;any directory&lt;br&gt;the one you launch from is the project" parent="1" vertex="1" style="shape=actor;whiteSpace=wrap;html=1;fillColor=#ffffff;strokeColor=#333333;fontSize=20;verticalAlign=middle;align=center;">
           <mxGeometry x="955" y="371" width="510" height="115" as="geometry" />
@@ -211,32 +214,29 @@
         <mxCell id="state" value="AssistantState (TypedDict)&lt;br&gt;messages   add_messages&lt;br&gt;observations   operator.add&lt;br&gt;confidence · remaining_steps" parent="1" vertex="1" style="shape=document;whiteSpace=wrap;html=1;fillColor=#e6f4ea;strokeColor=#3a7d4f;fontSize=20;verticalAlign=middle;align=center;">
           <mxGeometry x="511" y="3893" width="425" height="142" as="geometry" />
         </mxCell>
-        <mxCell id="ollama" value="Ollama · localhost:11434&lt;br&gt;serves every model here&lt;br&gt;qwen2.5:3b · qwen2.5-coder:7b&lt;br&gt;qwen2.5vl:3b · nomic-embed-text" parent="1" vertex="1" style="shape=hexagon;perimeter=hexagonPerimeter2;whiteSpace=wrap;html=1;fillColor=#e2f0f4;strokeColor=#2f7b8c;fontSize=20;verticalAlign=middle;align=center;">
-          <mxGeometry x="1026" y="3893" width="425" height="142" as="geometry" />
-        </mxCell>
         <mxCell id="lf" value="Langfuse v2&lt;br&gt;CallbackHandler on the graph&lt;br&gt;auth_check once, cached&lt;br&gt;every span, plus the confidence score" parent="1" vertex="1" style="rounded=1;arcSize=12;whiteSpace=wrap;html=1;fillColor=#e8eef9;strokeColor=#3b5f9e;fontSize=20;verticalAlign=middle;align=center;">
-          <mxGeometry x="1541" y="3893" width="425" height="169" as="geometry" />
+          <mxGeometry x="1026" y="3893" width="425" height="169" as="geometry" />
         </mxCell>
         <mxCell id="lfdb" value="docker compose&lt;br&gt;web + postgres" parent="1" vertex="1" style="shape=cylinder3;boundedLbl=1;backgroundOutline=1;size=14;whiteSpace=wrap;html=1;fillColor=#fdeae6;strokeColor=#b4553a;fontSize=20;verticalAlign=middle;align=center;">
-          <mxGeometry x="2012" y="3893" width="357" height="88" as="geometry" />
+          <mxGeometry x="1497" y="3893" width="357" height="88" as="geometry" />
         </mxCell>
         <mxCell id="l_proc" value="PROCESS&lt;br&gt;something that runs" parent="1" vertex="1" style="rounded=1;arcSize=12;whiteSpace=wrap;html=1;fillColor=#e8eef9;strokeColor=#3b5f9e;fontSize=20;verticalAlign=middle;align=center;">
-          <mxGeometry x="2459" y="3893" width="272" height="88" as="geometry" />
+          <mxGeometry x="1944" y="3893" width="289" height="88" as="geometry" />
         </mxCell>
         <mxCell id="l_dec" value="DECISION&lt;br&gt;a branch" parent="1" vertex="1" style="rhombus;whiteSpace=wrap;html=1;fillColor=#fdf3d8;strokeColor=#b5892a;fontSize=20;verticalAlign=middle;align=center;">
-          <mxGeometry x="2777" y="3893" width="255" height="150" as="geometry" />
+          <mxGeometry x="2279" y="3893" width="298" height="150" as="geometry" />
         </mxCell>
         <mxCell id="l_io" value="IN / OUT&lt;br&gt;a command or a refusal" parent="1" vertex="1" style="shape=parallelogram;perimeter=parallelogramPerimeter;fixedSize=1;whiteSpace=wrap;html=1;fillColor=#eae6f7;strokeColor=#6b52ae;fontSize=20;verticalAlign=middle;align=center;">
-          <mxGeometry x="3078" y="3893" width="272" height="115" as="geometry" />
+          <mxGeometry x="2622" y="3893" width="289" height="115" as="geometry" />
         </mxCell>
         <mxCell id="l_data" value="DATA&lt;br&gt;a record, not a step" parent="1" vertex="1" style="shape=document;whiteSpace=wrap;html=1;fillColor=#e6f4ea;strokeColor=#3a7d4f;fontSize=20;verticalAlign=middle;align=center;">
-          <mxGeometry x="3396" y="3893" width="272" height="88" as="geometry" />
+          <mxGeometry x="1944" y="4086" width="289" height="88" as="geometry" />
         </mxCell>
         <mxCell id="l_store" value="STORE&lt;br&gt;on disk" parent="1" vertex="1" style="shape=cylinder3;boundedLbl=1;backgroundOutline=1;size=14;whiteSpace=wrap;html=1;fillColor=#fdeae6;strokeColor=#b4553a;fontSize=20;verticalAlign=middle;align=center;">
-          <mxGeometry x="3714" y="3893" width="221" height="88" as="geometry" />
+          <mxGeometry x="2279" y="4086" width="238" height="88" as="geometry" />
         </mxCell>
         <mxCell id="l_srv" value="SERVER&lt;br&gt;long-running" parent="1" vertex="1" style="shape=hexagon;perimeter=hexagonPerimeter2;whiteSpace=wrap;html=1;fillColor=#e2f0f4;strokeColor=#2f7b8c;fontSize=20;verticalAlign=middle;align=center;">
-          <mxGeometry x="3981" y="3893" width="238" height="88" as="geometry" />
+          <mxGeometry x="2622" y="4086" width="289" height="88" as="geometry" />
         </mxCell>
         <mxCell id="e0" value="types a prompt" parent="1" edge="1" source="user" target="repl" style="edgeStyle=orthogonalEdgeStyle;rounded=0;html=1;jettySize=auto;orthogonalLoop=1;jumpStyle=arc;jumpSize=10;strokeColor=#333333;strokeWidth=2;endArrow=classic;endFill=1;fontSize=17;labelBackgroundColor=#ffffff;">
           <mxGeometry relative="1" as="geometry" />

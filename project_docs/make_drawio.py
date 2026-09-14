@@ -312,12 +312,27 @@ def compose() -> Layout:
     # footnote after it. Left-aligned with bullets: ragged left edges make a
     # list hard to read as a list, which centring guarantees.
     ystack = Layout.CPAD + Layout.TITLE_H
+    # Model serving sits with the stack rather than in the strip at the bottom.
+    # Ollama is not a footnote either: nothing in the diagram runs without it,
+    # and it belongs beside the libraries for the same reason they do - it is
+    # what the thing is built on, not a step in the flow.
+    L.node(
+        "ollama",
+        "Ollama · localhost:11434\nserves every model here\n"
+        "qwen2.5:3b · qwen2.5-coder:7b\nqwen2.5vl:3b · nomic-embed-text",
+        "server",
+        MARGIN,
+        ystack,
+        250,
+    )
+    c_serve = L.cluster("c_serve", "model serving", ["ollama"])
+
     lc = L.node(
         "stack_lc",
         "LangChain\n• @tool · InjectedToolCallId\n• ChatOllama · OllamaEmbeddings\n"
         "• langchain-tavily · langchain-chroma\n• document loaders (pdf · docx)",
         "process",
-        MARGIN,
+        c_serve.right + GAP_C,
         ystack,
         320,
         align="left",
@@ -770,36 +785,29 @@ def compose() -> Layout:
         "c_contract", "contracts  ·  what the evidence gate reads", ["obs", "state"]
     )
 
-    L.node(
-        "ollama",
-        "Ollama · localhost:11434\nserves every model here\n"
-        "qwen2.5:3b · qwen2.5-coder:7b\nqwen2.5vl:3b · nomic-embed-text",
-        "server",
-        c_contract.right + GAP_C,
-        yref,
-        250,
-    )
-    c_serve = L.cluster("c_serve", "model serving", ["ollama"])
-
     lf = L.node(
         "lf",
         "Langfuse v2\nCallbackHandler on the graph\nauth_check once, cached\n"
         "every span, plus the confidence score",
         "process",
-        c_serve.right + GAP_C,
+        c_contract.right + GAP_C,
         yref,
         250,
     )
     L.node("lfdb", "docker compose\nweb + postgres", "store", lf.right + GAP_X, yref, 210)
     c_obs = L.cluster("c_obs", "observability  ·  optional, degrades to a no-op", ["lf", "lfdb"])
 
+    # Three across, two down. In one row of six the legend was as wide as the
+    # whole flow above it and read as a band of the diagram rather than a key
+    # to it. A block is obviously an aside.
     xl = c_obs.right + GAP_C
-    lp = L.node("l_proc", "PROCESS\nsomething that runs", "process", xl, yref, 160)
-    ld = L.node("l_dec", "DECISION\na branch", "decision", lp.right + GAP_X, yref, 120)
-    li = L.node("l_io", "IN / OUT\na command or a refusal", "inout", ld.right + GAP_X, yref, 160)
-    lda = L.node("l_data", "DATA\na record, not a step", "data", li.right + GAP_X, yref, 160)
-    ls = L.node("l_store", "STORE\non disk", "store", lda.right + GAP_X, yref, 130)
-    L.node("l_srv", "SERVER\nlong-running", "server", ls.right + GAP_X, yref, 140)
+    lp = L.node("l_proc", "PROCESS\nsomething that runs", "process", xl, yref, 170)
+    ld = L.node("l_dec", "DECISION\na branch", "decision", lp.right + GAP_X, yref, 140)
+    li = L.node("l_io", "IN / OUT\na command or a refusal", "inout", ld.right + GAP_X, yref, 170)
+    y2 = max(lp.bottom, ld.bottom, li.bottom) + GAP_Y
+    L.node("l_data", "DATA\na record, not a step", "data", xl, y2, 170)
+    L.node("l_store", "STORE\non disk", "store", ld.x, y2, 140)
+    L.node("l_srv", "SERVER\nlong-running", "server", li.x, y2, 170)
     L.cluster(
         "c_legend",
         "legend  ·  what each shape means",
