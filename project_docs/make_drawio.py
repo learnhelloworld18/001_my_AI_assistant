@@ -152,6 +152,9 @@ class Node:
     w: float
     h: float = 0.0
     lines: list[str] = field(default_factory=list)
+    # Centred reads best for a short caption naming one thing. A list of
+    # bullets does not: ragged left edges make it hard to see it is a list.
+    align: str = "center"
 
     @property
     def right(self) -> float:
@@ -203,7 +206,16 @@ class Layout:
         self.clusters: dict[str, Cluster] = {}
         self.edges: list[EdgeSpec] = []
 
-    def node(self, nid: str, label: str, kind: str, x: float, y: float, w: float = 250) -> Node:
+    def node(
+        self,
+        nid: str,
+        label: str,
+        kind: str,
+        x: float,
+        y: float,
+        w: float = 250,
+        align: str = "center",
+    ) -> Node:
         """Place one box. w is a design width; BOX scales it with the type."""
         w *= BOX
         lines = _wrap(label, w)
@@ -214,7 +226,7 @@ class Layout:
             w *= DECISION_SLACK_W
             lines = _wrap(label, w)
             h = max(70.0 * BOX, (2 * PAD_Y + len(lines) * LINE_H) * DECISION_SLACK_H)
-        n = Node(nid, label, kind, x, y, w, h, lines)
+        n = Node(nid, label, kind, x, y, w, h, lines, align)
         self.nodes[nid] = n
         return n
 
@@ -295,6 +307,48 @@ def compose() -> Layout:
     """The diagram itself. Every label is a real module, model or constant."""
     L = Layout()
 
+    # The stack, first. These are the frameworks everything below is built
+    # out of, so they are the thing to read before the flow rather than a
+    # footnote after it. Left-aligned with bullets: ragged left edges make a
+    # list hard to read as a list, which centring guarantees.
+    ystack = Layout.CPAD + Layout.TITLE_H
+    lc = L.node(
+        "stack_lc",
+        "LangChain\n• @tool · InjectedToolCallId\n• ChatOllama · OllamaEmbeddings\n"
+        "• langchain-tavily · langchain-chroma\n• document loaders (pdf · docx)",
+        "process",
+        MARGIN,
+        ystack,
+        320,
+        align="left",
+    )
+    lg = L.node(
+        "stack_lg",
+        "LangGraph\n• StateGraph(AssistantState) per agent\n"
+        "• create_react_agent for tool loops\n• Command · interrupt() · RemainingSteps\n"
+        "• InMemorySaver checkpointer\n• langgraph-supervisor routes",
+        "process",
+        lc.right + GAP_X,
+        ystack,
+        320,
+        align="left",
+    )
+    L.node(
+        "stack_py",
+        "Pydantic + typing\n• Verdict is a BaseModel\n"
+        "• graph state is a TypedDict, not a model\n• Collection is a StrEnum",
+        "process",
+        lg.right + GAP_X,
+        ystack,
+        320,
+        align="left",
+    )
+    c_stack = L.cluster(
+        "c_stack",
+        "the stack  ·  which library is responsible for what",
+        ["stack_lc", "stack_lg", "stack_py"],
+    )
+
     # --- band 0/1: you, and the REPL --------------------------------------
     # Placed at x=0 and slid into place at the end, once the widest band below
     # has decided how wide the canvas actually is.
@@ -303,7 +357,7 @@ def compose() -> Layout:
         "user\nany directory\nthe one you launch from is the project",
         "actor",
         0,
-        0,
+        c_stack.bottom + GAP_B,
         # Wide enough that the third line does not wrap: 38 characters at
         # CHAR_W needs 480px, and 300 * BOX is 510.
         300,
@@ -746,55 +800,10 @@ def compose() -> Layout:
     lda = L.node("l_data", "DATA\na record, not a step", "data", li.right + GAP_X, yref, 160)
     ls = L.node("l_store", "STORE\non disk", "store", lda.right + GAP_X, yref, 130)
     L.node("l_srv", "SERVER\nlong-running", "server", ls.right + GAP_X, yref, 140)
-    c_legend = L.cluster(
+    L.cluster(
         "c_legend",
         "legend  ·  what each shape means",
         ["l_proc", "l_dec", "l_io", "l_data", "l_store", "l_srv"],
-    )
-
-    # Its own row under the reference strip. Beside the others it made the
-    # strip wider than the agents band and stretched the canvas from 4279
-    # to 5940 - a panel nothing points at should not set the page size.
-    ystack = (
-        max(c_contract.bottom, c_serve.bottom, c_obs.bottom, c_legend.bottom) + GAP_B + BAND_CHROME
-    )
-    # The frameworks were almost invisible: langgraph-supervisor appeared on
-    # the supervisor box and LangGraph and LangChain appeared nowhere at all,
-    # even though every agent is a StateGraph and every tool a LangChain @tool.
-    # Naming them per box would repeat the same two words twenty times, so they
-    # get one panel saying which library is responsible for what.
-    lg = L.node(
-        "stack_lg",
-        "LangGraph\nStateGraph(AssistantState) per agent\n"
-        "create_react_agent for the tool loops\n"
-        "Command · interrupt() · RemainingSteps\nInMemorySaver checkpointer",
-        "process",
-        MARGIN,
-        ystack,
-        290,
-    )
-    lc = L.node(
-        "stack_lc",
-        "LangChain\n@tool · InjectedToolCallId\nChatOllama · OllamaEmbeddings\n"
-        "langchain-tavily · langchain-chroma\ndocument loaders (pdf · docx)",
-        "process",
-        lg.right + GAP_X,
-        ystack,
-        290,
-    )
-    L.node(
-        "stack_py",
-        "Pydantic + typing\nVerdict is a BaseModel\n"
-        "graph state is a TypedDict, not a model\nCollection is a StrEnum",
-        "process",
-        lc.right + GAP_X,
-        ystack,
-        290,
-    )
-    L.cluster(
-        "c_stack",
-        "the stack  ·  which library is responsible for what",
-        ["stack_lg", "stack_lc", "stack_py"],
     )
 
     # Slide the top band so the decision sits over the branches it feeds,
@@ -965,7 +974,8 @@ def to_drawio(L: Layout) -> str:
                 "vertex": "1",
                 "style": (
                     f"{shape}whiteSpace=wrap;html=1;fillColor={fill};strokeColor={stroke};"
-                    f"fontSize={FONT_SIZE};verticalAlign=middle;align=center;"
+                    f"fontSize={FONT_SIZE};verticalAlign=middle;align={n.align};"
+                    + ("spacingLeft=14;" if n.align == "left" else "")
                 ),
             },
         )
@@ -1663,7 +1673,8 @@ def to_png(L: Layout) -> None:
         ty = n.y + PAD_Y + (n.h - 2 * PAD_Y - len(n.lines) * LINE_H) / 2
         for line in n.lines:
             tw = d.textlength(line, font=font)
-            d.text((n.x + n.w / 2 - tw / 2, ty), line, fill="#111111", font=font)
+            tx = n.x + PAD_X if n.align == "left" else n.x + n.w / 2 - tw / 2
+            d.text((tx, ty), line, fill="#111111", font=font)
             ty += LINE_H
 
     # Labels last. draw.io paints an edge label over whatever it crosses, so a
