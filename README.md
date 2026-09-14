@@ -152,6 +152,19 @@ brew install graphviz
 uv run python project_docs/make_diagram.py   # -> ./architecture.png
 ```
 
+An **editable** version of the same architecture, for Lucidchart or draw.io:
+
+```bash
+uv run python project_docs/make_drawio.py    # -> ./architecture.drawio
+                                             #    ./architecture_layout.png
+```
+
+`architecture.drawio` is committed, since it is small XML rather than a
+bitmap. Import it with Lucidchart's File → Import (`.drawio` is a supported
+format), or open it directly in [draw.io](https://app.diagrams.net). The
+`_layout.png` beside it is a preview, so the layout can be checked without
+opening either tool.
+
 The same flow as a text diagram, which renders here on GitHub and diffs as
 text:
 

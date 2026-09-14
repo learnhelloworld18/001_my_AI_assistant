@@ -14,6 +14,13 @@ path — run `uv run python project_docs/make_diagram.py`, which writes
 (`*.png` is gitignored), which is what lets it render at 8000px without
 fighting pre-commit's large-file limit.
 
+`project_docs/make_drawio.py` writes the same architecture as
+`architecture.drawio` — editable in Lucidchart or draw.io, and committed,
+because it is small XML rather than a bitmap. It is not a second copy to keep
+in sync by hand so much as a second renderer: the graphviz version is laid out
+by an engine that cannot see label widths, while this one places boxes in
+explicit bands and asserts that none of them overlap.
+
 Below is the same architecture as text: it renders on GitHub without graphviz,
 and it diffs.
 
