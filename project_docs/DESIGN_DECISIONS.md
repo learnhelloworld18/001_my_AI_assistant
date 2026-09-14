@@ -422,6 +422,52 @@ noise that competes with the parts worth recalling. And `/remember`
 stores verbatim — you already distilled it, so a 3B paraphrasing a
 sentence you chose carefully can only lose something.
 
+## Recall reserves slots for notes, or summaries drown them out
+
+There are three Chroma collections, and only one of them holds anything
+the assistant wrote itself:
+
+| Collection | Written by | Read by |
+|---|---|---|
+| `tech_notes` | `/ingest <path>` (default) | `search_notes` |
+| `resume_interview` | `/ingest <path> resume` | `search_resume`, `search_experience` |
+| `conversation_memory` | `/remember`, session summaries | `recall()` at session start |
+
+The first two are clean: one write path, one read path, documents you
+chose to ingest. The third mixes two things with the same shape and
+very different provenance — a note *you* typed, and a summary the
+model wrote about a session.
+
+**Why that's a problem.** `recall()` took the top `RECALL_K = 3` by
+score across the whole collection. But the two kinds don't arrive at
+the same rate: a summary is written *every session*, a note only when
+you ask for one. After a few weeks there are dozens of summaries and a
+handful of notes, all discussing the same subjects in the same
+vocabulary — so on score alone the summaries take every slot by sheer
+number. The thing you deliberately wrote down is the first thing
+evicted, which is backwards: it is the one entry that exists *because*
+someone decided it was worth keeping.
+
+It also compounds. Summaries are model-written, so a bad one doesn't
+just waste a slot — it feeds a wrong claim back into the next session's
+context, where it looks exactly like something you said.
+
+**The fix.** Search per kind and hold `RECALL_NOTES = 2` of the 3 slots
+for notes; summaries fill what's left. Neither kind wastes a slot the
+other could use — whichever runs out gives its remainder to the other,
+so a first run with no notes still returns three summaries, and four
+good notes with no summaries still returns three notes. The reserve is
+a floor, not a quota.
+
+Tested by the failure rather than the fix: one note against ten
+summaries, all on the same topic. With the reserve off, the note is
+crowded out completely and `recall()` returns three summaries.
+
+Not chosen: dropping summaries from recall entirely. They carry the
+continuity the feature exists for — what was decided last time — and
+the problem was never that they are worthless, only that they are
+numerous.
+
 ## Safety — added entirely, wasn't in the original design
 
 - **`coding_agent` safety boundary.** The first design just said "file/

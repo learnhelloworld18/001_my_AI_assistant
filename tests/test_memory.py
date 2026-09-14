@@ -147,6 +147,36 @@ def test_recall_returns_plain_strings_not_observations():
     assert got and all(isinstance(g, str) for g in got)
 
 
+def test_notes_keep_their_slots_when_summaries_pile_up():
+    """The failure this guards: one summary is written per session while a note
+    exists only because you asked for one, so on score alone the summaries take
+    the whole list by sheer number - and the deliberate note is the one worth
+    keeping."""
+    memory.remember("The user works with spark and kafka daily.", "s1")
+    for i in range(10):
+        memory.store(f"Session {i} covered spark and kafka questions.", f"s{i}", kind="summary")
+
+    got = memory.recall("spark kafka")
+    assert "The user works with spark and kafka daily." in got
+
+
+def test_summaries_still_fill_the_slots_notes_do_not_use():
+    """Reserving slots must not waste them - with no notes stored, recall
+    should come back full of summaries rather than half empty."""
+    for i in range(5):
+        memory.store(f"Session {i} covered spark and kafka.", f"s{i}", kind="summary")
+
+    assert len(memory.recall("spark kafka")) == memory.RECALL_K
+
+
+def test_a_note_alone_can_use_more_than_its_reserved_slots():
+    """The reserve is a floor, not a ceiling."""
+    for i in range(4):
+        memory.remember(f"Note {i}: the user works with spark and kafka.", f"s{i}")
+
+    assert len(memory.recall("spark kafka")) == memory.RECALL_K
+
+
 # --- collection boundary ---
 
 

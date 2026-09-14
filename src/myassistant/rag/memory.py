@@ -47,6 +47,13 @@ MIN_TURNS = 2
 # a 3B has little room to spare for them.
 RECALL_K = 3
 
+# Of those slots, how many are held for things you wrote yourself. Both kinds
+# live in conversation_memory, but they do not arrive at the same rate: a
+# summary is written every session, a note only when you ask for one. Ranking
+# the pool by score alone therefore hands the list to whichever kind there is
+# more of, which is never the one you chose to write.
+RECALL_NOTES = 2
+
 SUMMARY_PROMPT = """Summarise this conversation in 2-4 sentences, for your own \
 future reference.
 
@@ -146,6 +153,18 @@ def summarise_session(
     return summary if store(summary, session_id, kind="summary", **kwargs) else None
 
 
+def _hits(query: str, kind: str, k: int, embedding_function: Any | None = None) -> list[str]:
+    """Top matches of one kind, above the memory threshold. [] on failure."""
+    try:
+        found = get(
+            Collection.CONVERSATION_MEMORY, embedding_function=embedding_function
+        ).similarity_search_with_relevance_scores(query, k=k, filter={"kind": kind})
+    except Exception:
+        log.exception("could not recall %s memories", kind)
+        return []
+    return [doc.page_content for doc, score in found if score >= config.MEMORY_RECALL_THRESHOLD]
+
+
 def recall(query: str, *, k: int | None = None, embedding_function: Any | None = None) -> list[str]:
     """Relevant notes from past sessions. Empty on a first run, or on failure.
 
@@ -155,12 +174,19 @@ def recall(query: str, *, k: int | None = None, embedding_function: Any | None =
 
     Uses MEMORY_RECALL_THRESHOLD, not the document one - see config for the
     measurements. The document threshold recalled nothing at all.
+
+    Searched per kind rather than as one pool. Summaries accumulate one per
+    session while a note only exists because you typed /remember, so on score
+    alone the summaries win the list by sheer number - and the thing you wrote
+    deliberately is the thing most worth remembering. RECALL_NOTES slots are
+    held for notes; summaries fill what is left, and either kind takes the
+    other's unused slots rather than leaving them empty.
     """
-    try:
-        hits = get(
-            Collection.CONVERSATION_MEMORY, embedding_function=embedding_function
-        ).similarity_search_with_relevance_scores(query, k=k or RECALL_K)
-    except Exception:
-        log.exception("could not recall memories")
-        return []
-    return [doc.page_content for doc, score in hits if score >= config.MEMORY_RECALL_THRESHOLD]
+    k = k or RECALL_K
+    notes = _hits(query, "note", k, embedding_function)
+    summaries = _hits(query, "summary", k, embedding_function)
+
+    out = notes[:RECALL_NOTES]
+    out += [s for s in summaries if s not in out][: k - len(out)]
+    out += [n for n in notes if n not in out][: k - len(out)]
+    return out[:k]
