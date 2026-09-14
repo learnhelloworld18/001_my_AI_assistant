@@ -453,7 +453,7 @@ def compose() -> Layout:
 
     cg_read = L.node(
         "cg_read",
-        "read node\nqwen2.5:3b + tools\nreturns evidence, no prose",
+        "read node\ncreate_react_agent · qwen2.5:3b\nreturns evidence, no prose",
         "process",
         MARGIN,
         ya,
@@ -489,7 +489,14 @@ def compose() -> Layout:
     )
 
     xd = c_code.right + GAP_C
-    dg = L.node("dg", "docs_agent\nprompt: never fill a gap\nfrom memory", "process", xd, ya, 230)
+    dg = L.node(
+        "dg",
+        "docs_agent\ncreate_react_agent · qwen2.5:3b\nprompt: never fill a gap from memory",
+        "process",
+        xd,
+        ya,
+        230,
+    )
     dg_notes = L.node("dg_notes", "search_notes", "process", xd, dg.bottom + GAP_Y, 200)
     L.node("dg_res", "search_resume", "process", dg_notes.right + GAP_X, dg_notes.y, 200)
     dg_exp = L.node(
@@ -508,7 +515,14 @@ def compose() -> Layout:
     )
 
     xrg = c_docs.right + GAP_C
-    rg = L.node("rg", "research_agent\nprompt: snippets are\nnot evidence", "process", xrg, ya, 230)
+    rg = L.node(
+        "rg",
+        "research_agent\ncreate_react_agent · qwen2.5:3b\nprompt: snippets are not evidence",
+        "process",
+        xrg,
+        ya,
+        230,
+    )
     rg_search = L.node(
         "rg_search",
         "web_search · Tavily\nmax 5 · kind=search",
@@ -536,7 +550,7 @@ def compose() -> Layout:
     xg = c_res.right + GAP_C
     general = L.node(
         "general",
-        "general_agent\nqwen2.5:3b · no tools\nsingle call, no ReAct loop\nalways UNGROUNDED",
+        "general_agent\na plain StateGraph node, not create_react_agent\nqwen2.5:3b · no tools · single call\nalways UNGROUNDED",
         "process",
         xg,
         ya,
@@ -732,10 +746,55 @@ def compose() -> Layout:
     lda = L.node("l_data", "DATA\na record, not a step", "data", li.right + GAP_X, yref, 160)
     ls = L.node("l_store", "STORE\non disk", "store", lda.right + GAP_X, yref, 130)
     L.node("l_srv", "SERVER\nlong-running", "server", ls.right + GAP_X, yref, 140)
-    L.cluster(
+    c_legend = L.cluster(
         "c_legend",
         "legend  ·  what each shape means",
         ["l_proc", "l_dec", "l_io", "l_data", "l_store", "l_srv"],
+    )
+
+    # Its own row under the reference strip. Beside the others it made the
+    # strip wider than the agents band and stretched the canvas from 4279
+    # to 5940 - a panel nothing points at should not set the page size.
+    ystack = (
+        max(c_contract.bottom, c_serve.bottom, c_obs.bottom, c_legend.bottom) + GAP_B + BAND_CHROME
+    )
+    # The frameworks were almost invisible: langgraph-supervisor appeared on
+    # the supervisor box and LangGraph and LangChain appeared nowhere at all,
+    # even though every agent is a StateGraph and every tool a LangChain @tool.
+    # Naming them per box would repeat the same two words twenty times, so they
+    # get one panel saying which library is responsible for what.
+    lg = L.node(
+        "stack_lg",
+        "LangGraph\nStateGraph(AssistantState) per agent\n"
+        "create_react_agent for the tool loops\n"
+        "Command · interrupt() · RemainingSteps\nInMemorySaver checkpointer",
+        "process",
+        MARGIN,
+        ystack,
+        290,
+    )
+    lc = L.node(
+        "stack_lc",
+        "LangChain\n@tool · InjectedToolCallId\nChatOllama · OllamaEmbeddings\n"
+        "langchain-tavily · langchain-chroma\ndocument loaders (pdf · docx)",
+        "process",
+        lg.right + GAP_X,
+        ystack,
+        290,
+    )
+    L.node(
+        "stack_py",
+        "Pydantic + typing\nVerdict is a BaseModel\n"
+        "graph state is a TypedDict, not a model\nCollection is a StrEnum",
+        "process",
+        lc.right + GAP_X,
+        ystack,
+        290,
+    )
+    L.cluster(
+        "c_stack",
+        "the stack  ·  which library is responsible for what",
+        ["stack_lg", "stack_lc", "stack_py"],
     )
 
     # Slide the top band so the decision sits over the branches it feeds,

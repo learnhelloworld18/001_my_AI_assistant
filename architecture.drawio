@@ -1,6 +1,6 @@
 <mxfile host="app.diagrams.net" type="device">
   <diagram name="architecture" id="architecture">
-    <mxGraphModel dx="1200" dy="800" grid="1" gridSize="10" guides="1" tooltips="1" connect="1" arrows="1" fold="1" page="1" pageScale="1" pageWidth="4279" pageHeight="3723" math="0" shadow="0">
+    <mxGraphModel dx="1200" dy="800" grid="1" gridSize="10" guides="1" tooltips="1" connect="1" arrows="1" fold="1" page="1" pageScale="1" pageWidth="4279" pageHeight="4094" math="0" shadow="0">
       <root>
         <mxCell id="0" />
         <mxCell id="1" parent="0" />
@@ -14,34 +14,37 @@
           <mxGeometry x="955" y="936" width="431" height="736" as="geometry" />
         </mxCell>
         <mxCell id="c_tools" value="tools/coding.py" parent="1" vertex="1" style="rounded=0;whiteSpace=wrap;html=1;fillColor=#f7f9fc;strokeColor=#b7c3d6;dashed=1;verticalAlign=top;align=left;spacingLeft=10;spacingTop=4;fontSize=20;fontColor=#5b6878;">
-          <mxGeometry x="20" y="2130" width="800" height="312" as="geometry" />
+          <mxGeometry x="20" y="2157" width="800" height="312" as="geometry" />
         </mxCell>
         <mxCell id="c_code" value="coding_agent  ·  read then write  ·  the coder cannot call tools" parent="1" vertex="1" style="rounded=0;whiteSpace=wrap;html=1;fillColor=#f7f9fc;strokeColor=#b7c3d6;dashed=1;verticalAlign=top;align=left;spacingLeft=10;spacingTop=4;fontSize=20;fontColor=#5b6878;">
-          <mxGeometry x="20" y="1971" width="800" height="654" as="geometry" />
+          <mxGeometry x="20" y="1971" width="800" height="681" as="geometry" />
         </mxCell>
         <mxCell id="c_docs" value="docs_agent  ·  qwen2.5:3b  ·  your own documents" parent="1" vertex="1" style="rounded=0;whiteSpace=wrap;html=1;fillColor=#f7f9fc;strokeColor=#b7c3d6;dashed=1;verticalAlign=top;align=left;spacingLeft=10;spacingTop=4;fontSize=20;fontColor=#5b6878;">
-          <mxGeometry x="870" y="1971" width="796" height="532" as="geometry" />
+          <mxGeometry x="870" y="1971" width="796" height="586" as="geometry" />
         </mxCell>
         <mxCell id="c_res" value="research_agent  ·  qwen2.5:3b  ·  the open web" parent="1" vertex="1" style="rounded=0;whiteSpace=wrap;html=1;fillColor=#f7f9fc;strokeColor=#b7c3d6;dashed=1;verticalAlign=top;align=left;spacingLeft=10;spacingTop=4;fontSize=20;fontColor=#5b6878;">
-          <mxGeometry x="1716" y="1971" width="834" height="532" as="geometry" />
+          <mxGeometry x="1716" y="1971" width="834" height="586" as="geometry" />
         </mxCell>
         <mxCell id="c_store" value="storage  ·  ~/.myassistant  ·  embedded, no server" parent="1" vertex="1" style="rounded=0;whiteSpace=wrap;html=1;fillColor=#f7f9fc;strokeColor=#b7c3d6;dashed=1;verticalAlign=top;align=left;spacingLeft=10;spacingTop=4;fontSize=20;fontColor=#5b6878;">
           <mxGeometry x="3061" y="1971" width="936" height="605" as="geometry" />
         </mxCell>
         <mxCell id="c_safe" value="tools/safety.py  ·  PROJECT_ROOT = cwd captured at launch" parent="1" vertex="1" style="rounded=0;whiteSpace=wrap;html=1;fillColor=#f7f9fc;strokeColor=#b7c3d6;dashed=1;verticalAlign=top;align=left;spacingLeft=10;spacingTop=4;fontSize=20;fontColor=#5b6878;">
-          <mxGeometry x="20" y="2709" width="1454" height="526" as="geometry" />
+          <mxGeometry x="20" y="2736" width="1454" height="526" as="geometry" />
         </mxCell>
         <mxCell id="c_contract" value="contracts  ·  what the evidence gate reads" parent="1" vertex="1" style="rounded=0;whiteSpace=wrap;html=1;fillColor=#f7f9fc;strokeColor=#b7c3d6;dashed=1;verticalAlign=top;align=left;spacingLeft=10;spacingTop=4;fontSize=20;fontColor=#5b6878;">
-          <mxGeometry x="20" y="3424" width="936" height="233" as="geometry" />
+          <mxGeometry x="20" y="3451" width="936" height="233" as="geometry" />
         </mxCell>
         <mxCell id="c_serve" value="model serving" parent="1" vertex="1" style="rounded=0;whiteSpace=wrap;html=1;fillColor=#f7f9fc;strokeColor=#b7c3d6;dashed=1;verticalAlign=top;align=left;spacingLeft=10;spacingTop=4;fontSize=20;fontColor=#5b6878;">
-          <mxGeometry x="1006" y="3424" width="465" height="233" as="geometry" />
+          <mxGeometry x="1006" y="3451" width="465" height="233" as="geometry" />
         </mxCell>
         <mxCell id="c_obs" value="observability  ·  optional, degrades to a no-op" parent="1" vertex="1" style="rounded=0;whiteSpace=wrap;html=1;fillColor=#f7f9fc;strokeColor=#b7c3d6;dashed=1;verticalAlign=top;align=left;spacingLeft=10;spacingTop=4;fontSize=20;fontColor=#5b6878;">
-          <mxGeometry x="1521" y="3424" width="868" height="260" as="geometry" />
+          <mxGeometry x="1521" y="3451" width="868" height="260" as="geometry" />
         </mxCell>
         <mxCell id="c_legend" value="legend  ·  what each shape means" parent="1" vertex="1" style="rounded=0;whiteSpace=wrap;html=1;fillColor=#f7f9fc;strokeColor=#b7c3d6;dashed=1;verticalAlign=top;align=left;spacingLeft=10;spacingTop=4;fontSize=20;fontColor=#5b6878;">
-          <mxGeometry x="2439" y="3424" width="1800" height="241" as="geometry" />
+          <mxGeometry x="2439" y="3451" width="1800" height="241" as="geometry" />
+        </mxCell>
+        <mxCell id="c_stack" value="the stack  ·  which library is responsible for what" parent="1" vertex="1" style="rounded=0;whiteSpace=wrap;html=1;fillColor=#f7f9fc;strokeColor=#b7c3d6;dashed=1;verticalAlign=top;align=left;spacingLeft=10;spacingTop=4;fontSize=20;fontColor=#5b6878;">
+          <mxGeometry x="20" y="3795" width="1611" height="260" as="geometry" />
         </mxCell>
         <mxCell id="user" value="user&lt;br&gt;any directory&lt;br&gt;the one you launch from is the project" parent="1" vertex="1" style="shape=actor;whiteSpace=wrap;html=1;fillColor=#ffffff;strokeColor=#333333;fontSize=20;verticalAlign=middle;align=center;">
           <mxGeometry x="955" y="0" width="510" height="115" as="geometry" />
@@ -97,59 +100,59 @@
         <mxCell id="sup" value="supervisor&lt;br&gt;langgraph-supervisor&lt;br&gt;qwen2.5:3b · keep_alive 30m&lt;br&gt;parallel_tool_calls=False&lt;br&gt;output_mode=last_message&lt;br&gt;InMemorySaver checkpointer" parent="1" vertex="1" style="shape=hexagon;perimeter=hexagonPerimeter2;whiteSpace=wrap;html=1;fillColor=#e2f0f4;strokeColor=#2f7b8c;fontSize=20;verticalAlign=middle;align=center;">
           <mxGeometry x="1456" y="1007" width="476" height="196" as="geometry" />
         </mxCell>
-        <mxCell id="cg_read" value="read node&lt;br&gt;qwen2.5:3b + tools&lt;br&gt;returns evidence, no prose" parent="1" vertex="1" style="rounded=1;arcSize=12;whiteSpace=wrap;html=1;fillColor=#e8eef9;strokeColor=#3b5f9e;fontSize=20;verticalAlign=middle;align=center;">
-          <mxGeometry x="40" y="2042" width="391" height="115" as="geometry" />
+        <mxCell id="cg_read" value="read node&lt;br&gt;create_react_agent · qwen2.5:3b&lt;br&gt;returns evidence, no prose" parent="1" vertex="1" style="rounded=1;arcSize=12;whiteSpace=wrap;html=1;fillColor=#e8eef9;strokeColor=#3b5f9e;fontSize=20;verticalAlign=middle;align=center;">
+          <mxGeometry x="40" y="2042" width="391" height="142" as="geometry" />
         </mxCell>
         <mxCell id="cg_list" value="list_project_files" parent="1" vertex="1" style="rounded=1;arcSize=12;whiteSpace=wrap;html=1;fillColor=#e8eef9;strokeColor=#3b5f9e;fontSize=20;verticalAlign=middle;align=center;">
-          <mxGeometry x="40" y="2201" width="357" height="88" as="geometry" />
+          <mxGeometry x="40" y="2228" width="357" height="88" as="geometry" />
         </mxCell>
         <mxCell id="cg_readf" value="read_project_file&lt;br&gt;20k char cap" parent="1" vertex="1" style="rounded=1;arcSize=12;whiteSpace=wrap;html=1;fillColor=#e8eef9;strokeColor=#3b5f9e;fontSize=20;verticalAlign=middle;align=center;">
-          <mxGeometry x="443" y="2201" width="357" height="88" as="geometry" />
+          <mxGeometry x="443" y="2228" width="357" height="88" as="geometry" />
         </mxCell>
         <mxCell id="cg_pw" value="propose_write" parent="1" vertex="1" style="rounded=1;arcSize=12;whiteSpace=wrap;html=1;fillColor=#e8eef9;strokeColor=#3b5f9e;fontSize=20;verticalAlign=middle;align=center;">
-          <mxGeometry x="40" y="2334" width="357" height="88" as="geometry" />
+          <mxGeometry x="40" y="2360" width="357" height="88" as="geometry" />
         </mxCell>
         <mxCell id="cg_pc" value="propose_command" parent="1" vertex="1" style="rounded=1;arcSize=12;whiteSpace=wrap;html=1;fillColor=#e8eef9;strokeColor=#3b5f9e;fontSize=20;verticalAlign=middle;align=center;">
-          <mxGeometry x="443" y="2334" width="357" height="88" as="geometry" />
+          <mxGeometry x="443" y="2360" width="357" height="88" as="geometry" />
         </mxCell>
         <mxCell id="cg_write" value="write node&lt;br&gt;qwen2.5-coder:7b-q4_K_M&lt;br&gt;no tools bound" parent="1" vertex="1" style="rounded=1;arcSize=12;whiteSpace=wrap;html=1;fillColor=#e8eef9;strokeColor=#3b5f9e;fontSize=20;verticalAlign=middle;align=center;">
-          <mxGeometry x="40" y="2486" width="391" height="115" as="geometry" />
+          <mxGeometry x="40" y="2513" width="391" height="115" as="geometry" />
         </mxCell>
         <mxCell id="cg_gate" value="gate" parent="1" vertex="1" style="rhombus;whiteSpace=wrap;html=1;fillColor=#fdf3d8;strokeColor=#b5892a;fontSize=20;verticalAlign=middle;align=center;">
-          <mxGeometry x="477" y="2486" width="276" height="119" as="geometry" />
+          <mxGeometry x="477" y="2513" width="276" height="119" as="geometry" />
         </mxCell>
-        <mxCell id="dg" value="docs_agent&lt;br&gt;prompt: never fill a gap&lt;br&gt;from memory" parent="1" vertex="1" style="rounded=1;arcSize=12;whiteSpace=wrap;html=1;fillColor=#e8eef9;strokeColor=#3b5f9e;fontSize=20;verticalAlign=middle;align=center;">
-          <mxGeometry x="890" y="2042" width="391" height="115" as="geometry" />
+        <mxCell id="dg" value="docs_agent&lt;br&gt;create_react_agent · qwen2.5:3b&lt;br&gt;prompt: never fill a gap from memory" parent="1" vertex="1" style="rounded=1;arcSize=12;whiteSpace=wrap;html=1;fillColor=#e8eef9;strokeColor=#3b5f9e;fontSize=20;verticalAlign=middle;align=center;">
+          <mxGeometry x="890" y="2042" width="391" height="169" as="geometry" />
         </mxCell>
         <mxCell id="dg_notes" value="search_notes" parent="1" vertex="1" style="rounded=1;arcSize=12;whiteSpace=wrap;html=1;fillColor=#e8eef9;strokeColor=#3b5f9e;fontSize=20;verticalAlign=middle;align=center;">
-          <mxGeometry x="890" y="2201" width="340" height="88" as="geometry" />
+          <mxGeometry x="890" y="2255" width="340" height="88" as="geometry" />
         </mxCell>
         <mxCell id="dg_res" value="search_resume" parent="1" vertex="1" style="rounded=1;arcSize=12;whiteSpace=wrap;html=1;fillColor=#e8eef9;strokeColor=#3b5f9e;fontSize=20;verticalAlign=middle;align=center;">
-          <mxGeometry x="1276" y="2201" width="340" height="88" as="geometry" />
+          <mxGeometry x="1276" y="2255" width="340" height="88" as="geometry" />
         </mxCell>
         <mxCell id="dg_exp" value="search_experience&lt;br&gt;one query per CAREER_ROLE&lt;br&gt;coverage, not ranking" parent="1" vertex="1" style="rounded=1;arcSize=12;whiteSpace=wrap;html=1;fillColor=#e8eef9;strokeColor=#3b5f9e;fontSize=20;verticalAlign=middle;align=center;">
-          <mxGeometry x="890" y="2334" width="391" height="115" as="geometry" />
+          <mxGeometry x="890" y="2388" width="391" height="115" as="geometry" />
         </mxCell>
         <mxCell id="dg_gate" value="gate&lt;br&gt;top_score &gt;= 0.37" parent="1" vertex="1" style="rhombus;whiteSpace=wrap;html=1;fillColor=#fdf3d8;strokeColor=#b5892a;fontSize=20;verticalAlign=middle;align=center;">
-          <mxGeometry x="1327" y="2334" width="319" height="150" as="geometry" />
+          <mxGeometry x="1327" y="2388" width="319" height="150" as="geometry" />
         </mxCell>
-        <mxCell id="rg" value="research_agent&lt;br&gt;prompt: snippets are&lt;br&gt;not evidence" parent="1" vertex="1" style="rounded=1;arcSize=12;whiteSpace=wrap;html=1;fillColor=#e8eef9;strokeColor=#3b5f9e;fontSize=20;verticalAlign=middle;align=center;">
-          <mxGeometry x="1736" y="2042" width="391" height="115" as="geometry" />
+        <mxCell id="rg" value="research_agent&lt;br&gt;create_react_agent · qwen2.5:3b&lt;br&gt;prompt: snippets are not evidence" parent="1" vertex="1" style="rounded=1;arcSize=12;whiteSpace=wrap;html=1;fillColor=#e8eef9;strokeColor=#3b5f9e;fontSize=20;verticalAlign=middle;align=center;">
+          <mxGeometry x="1736" y="2042" width="391" height="169" as="geometry" />
         </mxCell>
         <mxCell id="rg_search" value="web_search · Tavily&lt;br&gt;max 5 · kind=search" parent="1" vertex="1" style="rounded=1;arcSize=12;whiteSpace=wrap;html=1;fillColor=#e8eef9;strokeColor=#3b5f9e;fontSize=20;verticalAlign=middle;align=center;">
-          <mxGeometry x="1736" y="2201" width="357" height="88" as="geometry" />
+          <mxGeometry x="1736" y="2255" width="357" height="88" as="geometry" />
         </mxCell>
         <mxCell id="rg_visit" value="visit_webpage&lt;br&gt;BeautifulSoup + markdownify&lt;br&gt;looks_empty(): &lt;400 chars,&lt;br&gt;consent walls, JS shells" parent="1" vertex="1" style="rounded=1;arcSize=12;whiteSpace=wrap;html=1;fillColor=#e8eef9;strokeColor=#3b5f9e;fontSize=20;verticalAlign=middle;align=center;">
-          <mxGeometry x="2139" y="2201" width="391" height="142" as="geometry" />
+          <mxGeometry x="2139" y="2255" width="391" height="142" as="geometry" />
         </mxCell>
         <mxCell id="rg_gate" value="gate&lt;br&gt;needs an ok kind=page" parent="1" vertex="1" style="rhombus;whiteSpace=wrap;html=1;fillColor=#fdf3d8;strokeColor=#b5892a;fontSize=20;verticalAlign=middle;align=center;">
-          <mxGeometry x="1736" y="2334" width="340" height="150" as="geometry" />
+          <mxGeometry x="1736" y="2388" width="340" height="150" as="geometry" />
         </mxCell>
-        <mxCell id="general" value="general_agent&lt;br&gt;qwen2.5:3b · no tools&lt;br&gt;single call, no ReAct loop&lt;br&gt;always UNGROUNDED" parent="1" vertex="1" style="rounded=1;arcSize=12;whiteSpace=wrap;html=1;fillColor=#e8eef9;strokeColor=#3b5f9e;fontSize=20;verticalAlign=middle;align=center;">
-          <mxGeometry x="2620" y="2042" width="391" height="142" as="geometry" />
+        <mxCell id="general" value="general_agent&lt;br&gt;a plain StateGraph node, not create_react_agent&lt;br&gt;qwen2.5:3b · no tools · single call&lt;br&gt;always UNGROUNDED" parent="1" vertex="1" style="rounded=1;arcSize=12;whiteSpace=wrap;html=1;fillColor=#e8eef9;strokeColor=#3b5f9e;fontSize=20;verticalAlign=middle;align=center;">
+          <mxGeometry x="2620" y="2042" width="391" height="196" as="geometry" />
         </mxCell>
         <mxCell id="web" value="Tavily API&lt;br&gt;and the open web" parent="1" vertex="1" style="ellipse;shape=cloud;whiteSpace=wrap;html=1;fillColor=#f2f2f2;strokeColor=#666666;fontSize=20;verticalAlign=middle;align=center;">
-          <mxGeometry x="2620" y="2228" width="357" height="88" as="geometry" />
+          <mxGeometry x="2620" y="2282" width="357" height="88" as="geometry" />
         </mxCell>
         <mxCell id="man" value="manifest.db (SQLite)&lt;br&gt;(source, collection) -&gt; hash&lt;br&gt;hashes CONTENT, not mtime" parent="1" vertex="1" style="shape=cylinder3;boundedLbl=1;backgroundOutline=1;size=14;whiteSpace=wrap;html=1;fillColor=#fdeae6;strokeColor=#b4553a;fontSize=20;verticalAlign=middle;align=center;">
           <mxGeometry x="3081" y="2042" width="425" height="115" as="geometry" />
@@ -167,64 +170,73 @@
           <mxGeometry x="3081" y="2387" width="680" height="169" as="geometry" />
         </mxCell>
         <mxCell id="s_path" value="safe_path()&lt;br&gt;resolve() BEFORE the check&lt;br&gt;catches ../.. and symlinks" parent="1" vertex="1" style="rhombus;whiteSpace=wrap;html=1;fillColor=#fdf3d8;strokeColor=#b5892a;fontSize=20;verticalAlign=middle;align=center;">
-          <mxGeometry x="40" y="2780" width="446" height="196" as="geometry" />
+          <mxGeometry x="40" y="2807" width="446" height="196" as="geometry" />
         </mxCell>
         <mxCell id="s_cmd" value="check_command()&lt;br&gt;per segment, strictest wins&lt;br&gt;unknown = CONFIRM, never ALLOW" parent="1" vertex="1" style="rhombus;whiteSpace=wrap;html=1;fillColor=#fdf3d8;strokeColor=#b5892a;fontSize=20;verticalAlign=middle;align=center;">
-          <mxGeometry x="532" y="2780" width="468" height="196" as="geometry" />
+          <mxGeometry x="532" y="2807" width="468" height="196" as="geometry" />
         </mxCell>
         <mxCell id="s_deny" value="DENY&lt;br&gt;sudo · rm -r · dd · chmod 777&lt;br&gt;curl|sh · fork bomb · .env&lt;br&gt;never becomes a question" parent="1" vertex="1" style="shape=parallelogram;perimeter=parallelogramPerimeter;fixedSize=1;whiteSpace=wrap;html=1;fillColor=#eae6f7;strokeColor=#6b52ae;fontSize=20;verticalAlign=middle;align=center;">
-          <mxGeometry x="1046" y="2780" width="408" height="142" as="geometry" />
+          <mxGeometry x="1046" y="2807" width="408" height="142" as="geometry" />
         </mxCell>
         <mxCell id="s_int" value="interrupt()&lt;br&gt;pauses the whole graph&lt;br&gt;resumes on the same line" parent="1" vertex="1" style="rhombus;whiteSpace=wrap;html=1;fillColor=#fdf3d8;strokeColor=#b5892a;fontSize=20;verticalAlign=middle;align=center;">
-          <mxGeometry x="40" y="3019" width="446" height="196" as="geometry" />
+          <mxGeometry x="40" y="3046" width="446" height="196" as="geometry" />
         </mxCell>
         <mxCell id="s_act" value="write the file&lt;br&gt;run it · cwd=PROJECT_ROOT&lt;br&gt;60s timeout" parent="1" vertex="1" style="rounded=1;arcSize=12;whiteSpace=wrap;html=1;fillColor=#e8eef9;strokeColor=#3b5f9e;fontSize=20;verticalAlign=middle;align=center;">
-          <mxGeometry x="532" y="3019" width="391" height="115" as="geometry" />
+          <mxGeometry x="532" y="3046" width="391" height="115" as="geometry" />
         </mxCell>
         <mxCell id="s_declined" value="declined&lt;br&gt;and the agent is told" parent="1" vertex="1" style="shape=parallelogram;perimeter=parallelogramPerimeter;fixedSize=1;whiteSpace=wrap;html=1;fillColor=#eae6f7;strokeColor=#6b52ae;fontSize=20;verticalAlign=middle;align=center;">
-          <mxGeometry x="969" y="3019" width="374" height="88" as="geometry" />
+          <mxGeometry x="969" y="3046" width="374" height="88" as="geometry" />
         </mxCell>
         <mxCell id="gate" value="evidence gate&lt;br&gt;deterministic · no model call&lt;br&gt;any ok Observation&lt;br&gt;whose kind is not 'search'" parent="1" vertex="1" style="rhombus;whiteSpace=wrap;html=1;fillColor=#fdf3d8;strokeColor=#b5892a;fontSize=20;verticalAlign=middle;align=center;">
-          <mxGeometry x="1544" y="2780" width="510" height="241" as="geometry" />
+          <mxGeometry x="1544" y="2807" width="510" height="241" as="geometry" />
         </mxCell>
         <mxCell id="tiers" value="HIGH  ·  no tag shown&lt;br&gt;LOW  ·  thin evidence&lt;br&gt;UNGROUNDED  ·  not verified&lt;br&gt;tiers, never percentages" parent="1" vertex="1" style="shape=document;whiteSpace=wrap;html=1;fillColor=#e6f4ea;strokeColor=#3a7d4f;fontSize=20;verticalAlign=middle;align=center;">
-          <mxGeometry x="1544" y="3065" width="425" height="142" as="geometry" />
+          <mxGeometry x="1544" y="3092" width="425" height="142" as="geometry" />
         </mxCell>
         <mxCell id="out" value="streamed back to you&lt;br&gt;token by token" parent="1" vertex="1" style="shape=parallelogram;perimeter=parallelogramPerimeter;fixedSize=1;whiteSpace=wrap;html=1;fillColor=#eae6f7;strokeColor=#6b52ae;fontSize=20;verticalAlign=middle;align=center;">
-          <mxGeometry x="1544" y="3251" width="391" height="88" as="geometry" />
+          <mxGeometry x="1544" y="3278" width="391" height="88" as="geometry" />
         </mxCell>
         <mxCell id="obs" value="Observation (frozen)&lt;br&gt;ok · detail · content&lt;br&gt;source · metrics{kind,…}&lt;br&gt;render() -&gt; [OK] / [TOOL FAILED]" parent="1" vertex="1" style="shape=document;whiteSpace=wrap;html=1;fillColor=#e6f4ea;strokeColor=#3a7d4f;fontSize=20;verticalAlign=middle;align=center;">
-          <mxGeometry x="40" y="3495" width="425" height="142" as="geometry" />
+          <mxGeometry x="40" y="3522" width="425" height="142" as="geometry" />
         </mxCell>
         <mxCell id="state" value="AssistantState (TypedDict)&lt;br&gt;messages   add_messages&lt;br&gt;observations   operator.add&lt;br&gt;confidence · remaining_steps" parent="1" vertex="1" style="shape=document;whiteSpace=wrap;html=1;fillColor=#e6f4ea;strokeColor=#3a7d4f;fontSize=20;verticalAlign=middle;align=center;">
-          <mxGeometry x="511" y="3495" width="425" height="142" as="geometry" />
+          <mxGeometry x="511" y="3522" width="425" height="142" as="geometry" />
         </mxCell>
         <mxCell id="ollama" value="Ollama · localhost:11434&lt;br&gt;serves every model here&lt;br&gt;qwen2.5:3b · qwen2.5-coder:7b&lt;br&gt;qwen2.5vl:3b · nomic-embed-text" parent="1" vertex="1" style="shape=hexagon;perimeter=hexagonPerimeter2;whiteSpace=wrap;html=1;fillColor=#e2f0f4;strokeColor=#2f7b8c;fontSize=20;verticalAlign=middle;align=center;">
-          <mxGeometry x="1026" y="3495" width="425" height="142" as="geometry" />
+          <mxGeometry x="1026" y="3522" width="425" height="142" as="geometry" />
         </mxCell>
         <mxCell id="lf" value="Langfuse v2&lt;br&gt;CallbackHandler on the graph&lt;br&gt;auth_check once, cached&lt;br&gt;every span, plus the confidence score" parent="1" vertex="1" style="rounded=1;arcSize=12;whiteSpace=wrap;html=1;fillColor=#e8eef9;strokeColor=#3b5f9e;fontSize=20;verticalAlign=middle;align=center;">
-          <mxGeometry x="1541" y="3495" width="425" height="169" as="geometry" />
+          <mxGeometry x="1541" y="3522" width="425" height="169" as="geometry" />
         </mxCell>
         <mxCell id="lfdb" value="docker compose&lt;br&gt;web + postgres" parent="1" vertex="1" style="shape=cylinder3;boundedLbl=1;backgroundOutline=1;size=14;whiteSpace=wrap;html=1;fillColor=#fdeae6;strokeColor=#b4553a;fontSize=20;verticalAlign=middle;align=center;">
-          <mxGeometry x="2012" y="3495" width="357" height="88" as="geometry" />
+          <mxGeometry x="2012" y="3522" width="357" height="88" as="geometry" />
         </mxCell>
         <mxCell id="l_proc" value="PROCESS&lt;br&gt;something that runs" parent="1" vertex="1" style="rounded=1;arcSize=12;whiteSpace=wrap;html=1;fillColor=#e8eef9;strokeColor=#3b5f9e;fontSize=20;verticalAlign=middle;align=center;">
-          <mxGeometry x="2459" y="3495" width="272" height="88" as="geometry" />
+          <mxGeometry x="2459" y="3522" width="272" height="88" as="geometry" />
         </mxCell>
         <mxCell id="l_dec" value="DECISION&lt;br&gt;a branch" parent="1" vertex="1" style="rhombus;whiteSpace=wrap;html=1;fillColor=#fdf3d8;strokeColor=#b5892a;fontSize=20;verticalAlign=middle;align=center;">
-          <mxGeometry x="2777" y="3495" width="255" height="150" as="geometry" />
+          <mxGeometry x="2777" y="3522" width="255" height="150" as="geometry" />
         </mxCell>
         <mxCell id="l_io" value="IN / OUT&lt;br&gt;a command or a refusal" parent="1" vertex="1" style="shape=parallelogram;perimeter=parallelogramPerimeter;fixedSize=1;whiteSpace=wrap;html=1;fillColor=#eae6f7;strokeColor=#6b52ae;fontSize=20;verticalAlign=middle;align=center;">
-          <mxGeometry x="3078" y="3495" width="272" height="115" as="geometry" />
+          <mxGeometry x="3078" y="3522" width="272" height="115" as="geometry" />
         </mxCell>
         <mxCell id="l_data" value="DATA&lt;br&gt;a record, not a step" parent="1" vertex="1" style="shape=document;whiteSpace=wrap;html=1;fillColor=#e6f4ea;strokeColor=#3a7d4f;fontSize=20;verticalAlign=middle;align=center;">
-          <mxGeometry x="3396" y="3495" width="272" height="88" as="geometry" />
+          <mxGeometry x="3396" y="3522" width="272" height="88" as="geometry" />
         </mxCell>
         <mxCell id="l_store" value="STORE&lt;br&gt;on disk" parent="1" vertex="1" style="shape=cylinder3;boundedLbl=1;backgroundOutline=1;size=14;whiteSpace=wrap;html=1;fillColor=#fdeae6;strokeColor=#b4553a;fontSize=20;verticalAlign=middle;align=center;">
-          <mxGeometry x="3714" y="3495" width="221" height="88" as="geometry" />
+          <mxGeometry x="3714" y="3522" width="221" height="88" as="geometry" />
         </mxCell>
         <mxCell id="l_srv" value="SERVER&lt;br&gt;long-running" parent="1" vertex="1" style="shape=hexagon;perimeter=hexagonPerimeter2;whiteSpace=wrap;html=1;fillColor=#e2f0f4;strokeColor=#2f7b8c;fontSize=20;verticalAlign=middle;align=center;">
-          <mxGeometry x="3981" y="3495" width="238" height="88" as="geometry" />
+          <mxGeometry x="3981" y="3522" width="238" height="88" as="geometry" />
+        </mxCell>
+        <mxCell id="stack_lg" value="LangGraph&lt;br&gt;StateGraph(AssistantState) per agent&lt;br&gt;create_react_agent for the tool loops&lt;br&gt;Command · interrupt() · RemainingSteps&lt;br&gt;InMemorySaver checkpointer" parent="1" vertex="1" style="rounded=1;arcSize=12;whiteSpace=wrap;html=1;fillColor=#e8eef9;strokeColor=#3b5f9e;fontSize=20;verticalAlign=middle;align=center;">
+          <mxGeometry x="40" y="3866" width="493" height="169" as="geometry" />
+        </mxCell>
+        <mxCell id="stack_lc" value="LangChain&lt;br&gt;@tool · InjectedToolCallId&lt;br&gt;ChatOllama · OllamaEmbeddings&lt;br&gt;langchain-tavily · langchain-chroma&lt;br&gt;document loaders (pdf · docx)" parent="1" vertex="1" style="rounded=1;arcSize=12;whiteSpace=wrap;html=1;fillColor=#e8eef9;strokeColor=#3b5f9e;fontSize=20;verticalAlign=middle;align=center;">
+          <mxGeometry x="579" y="3866" width="493" height="169" as="geometry" />
+        </mxCell>
+        <mxCell id="stack_py" value="Pydantic + typing&lt;br&gt;Verdict is a BaseModel&lt;br&gt;graph state is a TypedDict, not a model&lt;br&gt;Collection is a StrEnum" parent="1" vertex="1" style="rounded=1;arcSize=12;whiteSpace=wrap;html=1;fillColor=#e8eef9;strokeColor=#3b5f9e;fontSize=20;verticalAlign=middle;align=center;">
+          <mxGeometry x="1118" y="3866" width="493" height="142" as="geometry" />
         </mxCell>
         <mxCell id="e0" value="types a prompt" parent="1" edge="1" source="user" target="repl" style="edgeStyle=orthogonalEdgeStyle;rounded=0;html=1;jettySize=auto;orthogonalLoop=1;jumpStyle=arc;jumpSize=10;strokeColor=#333333;strokeWidth=2;endArrow=classic;endFill=1;fontSize=17;labelBackgroundColor=#ffffff;">
           <mxGeometry relative="1" as="geometry" />
