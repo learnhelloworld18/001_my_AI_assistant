@@ -452,12 +452,26 @@ It also compounds. Summaries are model-written, so a bad one doesn't
 just waste a slot — it feeds a wrong claim back into the next session's
 context, where it looks exactly like something you said.
 
-**The fix.** Search per kind and hold `RECALL_NOTES = 2` of the 3 slots
+**The fix.** Search per kind and hold `RECALL_NOTES = 1` of the 3 slots
 for notes; summaries fill what's left. Neither kind wastes a slot the
 other could use — whichever runs out gives its remainder to the other,
 so a first run with no notes still returns three summaries, and four
 good notes with no summaries still returns three notes. The reserve is
 a floor, not a quota.
+
+**One slot, not two.** The first version reserved two, on the reasoning
+that a majority of three keeps a deliberate note from being outvoted.
+That inverted what the collection is for. `PROJECT_REQUIREMENTS.md`
+describes `conversation_memory` as existing for *cross-session
+continuity*, and summaries are what provide that — a note is the
+deliberate exception, so what it needs is a guaranteed foothold, not
+the majority. Summaries keep two of three.
+
+Worth naming as a difference in kind: `MEMORY_RECALL_THRESHOLD = 0.18`
+was measured, this number was argued. It is a default chosen to match
+the collection's stated purpose, and the honest reason to prefer 1 over
+2 is that purpose rather than any observation — there is no measurement
+here yet, and there should be one before the number moves again.
 
 Tested by the failure rather than the fix: one note against ten
 summaries, all on the same topic. With the reserve off, the note is

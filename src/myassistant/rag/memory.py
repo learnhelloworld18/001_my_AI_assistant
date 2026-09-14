@@ -52,7 +52,12 @@ RECALL_K = 3
 # summary is written every session, a note only when you ask for one. Ranking
 # the pool by score alone therefore hands the list to whichever kind there is
 # more of, which is never the one you chose to write.
-RECALL_NOTES = 2
+#
+# One, not two. The collection exists for continuity across restarts, and
+# summaries are what provide that - a note is the deliberate exception, so it
+# needs a guaranteed foothold rather than a majority. A floor, not a quota:
+# with no matching notes all three slots still go to summaries.
+RECALL_NOTES = 1
 
 SUMMARY_PROMPT = """Summarise this conversation in 2-4 sentences, for your own \
 future reference.

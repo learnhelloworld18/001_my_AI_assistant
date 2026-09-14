@@ -585,7 +585,7 @@ def compose() -> Layout:
         "tech_notes  ·  /ingest  ·  search_notes\n"
         "resume_interview  ·  /ingest resume  ·  search_resume\n"
         "conversation_memory  ·  /remember + summaries\n"
-        "recall() holds 2 of 3 slots for your own notes",
+        "recall() keeps 1 of 3 slots free for a /remember note",
         "store",
         xs,
         mem.bottom + GAP_Y,

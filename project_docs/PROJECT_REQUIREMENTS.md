@@ -172,7 +172,7 @@ path and metadata):
 | `tech_notes` | Articles/notes you read, chunked | `docs_agent` |
 | `resume_interview` | Resume bullets, past interview answers, job descriptions | `docs_agent` |
 | ↳ seed source | `~/Documents/application_docs/PREP/` — company-specific interview prep + `STAR/` resume-points docs + `01_extra notes/<company>/`. **Not** `spark.md` in that same folder — that's general Apache Spark reference material, not interview-specific, and belongs in `tech_notes` via its own ingest call instead |
-| `conversation_memory` | Per-session summaries (not raw transcripts) | supervisor / any agent, for cross-session continuity |
+| `conversation_memory` | Per-session summaries (not raw transcripts), **and** verbatim `/remember` notes | supervisor / any agent, for cross-session continuity |
 
 **Conversation memory, specifically**:
 - At the end of a REPL session (or on `/exit`), summarize that
@@ -184,6 +184,18 @@ path and metadata):
 - This is a deliberately different pattern from `tech_notes`: store a
   distilled summary, not the raw conversation, to keep retrieval signal
   clean.
+- The collection holds **two kinds**, tagged by a `kind` metadata field:
+  `summary` (written automatically, one per session) and `note`
+  (written by `/remember`, verbatim). Both are recalled — a note is not
+  write-only storage.
+- Recall reserves slots by kind rather than ranking the two together.
+  They do not arrive at the same rate: a summary every session, a note
+  only when asked for, so on score alone the summaries take every slot
+  by sheer number and the deliberate note is evicted first.
+  `RECALL_NOTES = 1` of `RECALL_K = 3` is held for notes — a floor, not
+  a quota, since with no matching notes all three slots still go to
+  summaries. Summaries keep the majority because continuity is what
+  this collection is for; the note is the exception you reach for.
 
 **Ingestion mechanics (`/ingest <path> [--collection <name>]`)**:
 - `--collection` defaults to `tech_notes` if omitted; pass
