@@ -78,6 +78,10 @@ GAP_Y = 44  # between boxes stacked inside a cluster
 GAP_C = 70  # between clusters, horizontally
 GAP_B = 84  # between bands, vertically
 MARGIN = 40
+# A cluster's border sits CPAD + TITLE_H above its first box, so a band that
+# starts GAP_B below the last one leaves only GAP_B minus that showing - 13px
+# of the intended 84. Bands add it back, so GAP_B is the gap you actually see.
+BAND_CHROME = 20 + round(30 * BOX)
 
 # A rhombus only offers its text the middle band of its bounding box, so a
 # decision needs a bigger box than its caption alone would suggest.
@@ -102,7 +106,10 @@ KINDS = {
 
 # Edge styles. endArrow is set explicitly rather than left to the default, so
 # direction survives a round trip through an importer that has its own idea of
-# what an unstyled edge looks like.
+# what an unstyled edge looks like. jumpStyle=arc makes a line hop over the
+# ones it crosses instead of merging into them at the junction - with 62 edges
+# a plain crossing is ambiguous about which line continues where.
+JUMPS = "jumpStyle=arc;jumpSize=10;"
 EDGES = {
     "path": "strokeColor=#333333;strokeWidth=2;endArrow=classic;endFill=1;",
     "stop": "strokeColor=#b02c2c;strokeWidth=2;endArrow=classic;endFill=1;",
@@ -284,7 +291,7 @@ def compose() -> Layout:
         "user", "you\nany directory · the one you\nlaunch from is the project", "actor", 0, 0, 200
     )
 
-    yr = user.bottom + GAP_B
+    yr = user.bottom + GAP_B + BAND_CHROME
     repl = L.node(
         "repl",
         "prompt_toolkit\nFileHistory ~/.myassistant/history\n"
@@ -340,7 +347,7 @@ def compose() -> Layout:
     top_nodes = ["user", "repl", "sess", "errors", "shutdown", "route"]
 
     # --- band 2: the three branches ---------------------------------------
-    yb = route.bottom + GAP_B
+    yb = route.bottom + GAP_B + BAND_CHROME
 
     d_parse = L.node(
         "d_parse",
@@ -424,7 +431,7 @@ def compose() -> Layout:
     )
 
     # --- band 3: the agents, one job each ----------------------------------
-    ya = max(c_drop.bottom, c_meta.bottom, sup.bottom) + GAP_B
+    ya = max(c_drop.bottom, c_meta.bottom, sup.bottom) + GAP_B + BAND_CHROME
 
     cg_read = L.node(
         "cg_read",
@@ -568,6 +575,7 @@ def compose() -> Layout:
     ysf = (
         max(c_code.bottom, c_docs.bottom, c_res.bottom, L.nodes["web"].bottom, c_store.bottom)
         + GAP_B
+        + BAND_CHROME
     )
 
     s_path = L.node(
@@ -642,7 +650,7 @@ def compose() -> Layout:
     L.node("out", "streamed back to you\ntoken by token", "inout", xsp, tiers.bottom + GAP_Y, 230)
 
     # --- the reference strip: not steps, so not in the flow ----------------
-    yref = max(c_safe.bottom, L.nodes["out"].bottom) + GAP_B
+    yref = max(c_safe.bottom, L.nodes["out"].bottom) + GAP_B + BAND_CHROME
 
     obs = L.node(
         "obs",
@@ -702,9 +710,11 @@ def compose() -> Layout:
         ["l_proc", "l_dec", "l_io", "l_data", "l_store", "l_srv"],
     )
 
-    # Slide the top band into the middle, now that the width is settled.
-    width = max(c.right for c in L.clusters.values())
-    L.shift(top_nodes, ["c_repl"], (width - c_repl.w) / 2 - c_repl.x)
+    # Slide the top band so the decision sits over the branches it feeds,
+    # left edge against meta-commands. Centred on the whole canvas it drifted
+    # 910px right of them - the canvas is wide because of the agents band, and
+    # the decision has nothing to do with that band.
+    L.shift(top_nodes, ["c_repl"], L.clusters["c_meta"].x - route.x)
 
     # --- edges. Every one carries a label: an unlabelled arrow makes the
     # --- reader guess, and assert_every_edge_labelled() enforces it.
@@ -893,7 +903,7 @@ def to_drawio(L: Layout) -> str:
                 "target": e.dst,
                 "style": (
                     "edgeStyle=orthogonalEdgeStyle;rounded=0;html=1;jettySize=auto;"
-                    f"orthogonalLoop=1;{EDGES[e.style]}fontSize={FONT_SIZE - 3};"
+                    f"orthogonalLoop=1;{JUMPS}{EDGES[e.style]}fontSize={FONT_SIZE - 3};"
                     "labelBackgroundColor=#ffffff;"
                 ),
             },
@@ -1124,6 +1134,50 @@ def _route(a: Node, b: Node, clusters: dict[str, Cluster], nodes: list[Node]) ->
     return route
 
 
+HOP_R = 8.0
+
+
+def _draw_hopped(
+    d: object,
+    route: list[Point],
+    idx: int,
+    verticals: list[tuple[int, float, float, float]],
+    colour: str,
+) -> None:
+    """Draw a route, arcing over every other line it crosses.
+
+    Only horizontal legs hop; verticals are drawn straight. If both hopped,
+    each crossing would get two bumps and the pair would read worse than a
+    plain junction. One side hopping is the convention for the same reason a
+    road bridge only needs one deck.
+    """
+    for (x0, y0), (x1, y1) in pairwise(route):
+        if y0 != y1:  # vertical leg - drawn straight, it is the one hopped over
+            d.line([x0, y0, x1, y1], fill=colour, width=2)  # type: ignore[attr-defined]
+            continue
+        lo, hi = min(x0, x1), max(x0, x1)
+        cuts = sorted(
+            vx
+            for j, vx, vy0, vy1 in verticals
+            if j != idx and lo + HOP_R < vx < hi - HOP_R and vy0 < y0 < vy1
+        )
+        if x0 > x1:
+            cuts.reverse()
+        step = 1.0 if x1 > x0 else -1.0
+        at = x0
+        for cx in cuts:
+            d.line([at, y0, cx - HOP_R * step, y0], fill=colour, width=2)  # type: ignore[attr-defined]
+            d.arc(  # type: ignore[attr-defined]
+                [cx - HOP_R, y0 - HOP_R, cx + HOP_R, y0 + HOP_R],
+                180,
+                360,
+                fill=colour,
+                width=2,
+            )
+            at = cx + HOP_R * step
+        d.line([at, y0, x1, y1], fill=colour, width=2)  # type: ignore[attr-defined]
+
+
 def _arrowhead(d: object, route: list[Point], colour: str) -> None:
     """A head on the last leg, pointing the way that leg actually travels.
 
@@ -1277,11 +1331,20 @@ def to_png(L: Layout) -> None:
 
     crowded: list[str] = []
     labels: list[tuple[float, float, float, float, str, str]] = []
-    for e in L.edges:
+    # Routes up front, so each one knows what the others cross.
+    routes = [
+        _route(L.nodes[e.src], L.nodes[e.dst], L.clusters, list(L.nodes.values())) for e in L.edges
+    ]
+    verticals = [
+        (i, x0, min(y0, y1), max(y0, y1))
+        for i, r in enumerate(routes)
+        for (x0, y0), (x1, y1) in pairwise(r)
+        if x0 == x1
+    ]
+    for i, (e, route) in enumerate(zip(L.edges, routes, strict=True)):
         a, b = L.nodes[e.src], L.nodes[e.dst]
         colour = ARROW_COLOURS.get(e.style, "#555555")
-        route = _route(a, b, L.clusters, list(L.nodes.values()))
-        d.line([p for xy in route for p in xy], fill=colour, width=2)
+        _draw_hopped(d, route, i, verticals, colour)
         _arrowhead(d, route, colour)
         tw = d.textlength(e.label, font=efont)
         pref = _above_target(a, b, L.clusters, FONT_SIZE)
