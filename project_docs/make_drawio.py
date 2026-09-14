@@ -51,6 +51,7 @@ from __future__ import annotations
 
 import textwrap
 from dataclasses import dataclass, field
+from itertools import pairwise
 from pathlib import Path
 from xml.etree import ElementTree as ET
 
@@ -73,7 +74,7 @@ CHAR_W = FONT_SIZE * 0.58
 
 # Fixed gaps. Constant in pixels whatever BOX is set to.
 GAP_X = 46  # between boxes side by side
-GAP_Y = 34  # between boxes stacked inside a cluster
+GAP_Y = 44  # between boxes stacked inside a cluster
 GAP_C = 70  # between clusters, horizontally
 GAP_B = 84  # between bands, vertically
 MARGIN = 40
@@ -293,21 +294,10 @@ def compose() -> Layout:
         yr,
         270,
     )
-    L.node(
-        "shutdown",
-        "/exit · Ctrl-D · SIGHUP · SIGTERM\n1. flush Langfuse\n"
-        "2. summarise, 20s cap\nsecond signal exits at once",
-        "process",
-        repl.right + GAP_X,
-        yr,
-        270,
-    )
     # Under prompt_toolkit rather than beside it. Neither of these is a peer of
     # the REPL in the flow - the Session is what it appends to and the
     # try/except is what it runs inside - so a row below reads as "belongs to"
-    # where a row beside reads as "comes after". It also lets the two edges
-    # arrive from above, which is the only direction the preview renderer
-    # draws an arrowhead for correctly.
+    # where a row beside reads as "comes after".
     sess = L.node(
         "sess",
         "Session\nhistory: list[BaseMessage]\nsession_id groups traces\nrecall runs once per run",
@@ -316,13 +306,24 @@ def compose() -> Layout:
         repl.bottom + GAP_Y,
         250,
     )
-    L.node(
+    errors = L.node(
         "errors",
         "per-turn try/except\none bad turn never\nkills the loop",
         "inout",
         sess.right + GAP_X,
         sess.y,
         230,
+    )
+    # Beside the try/except, on the same row: both are ways a run ends rather
+    # than steps in a turn, and the top row is then just the thing you type at.
+    L.node(
+        "shutdown",
+        "/exit · Ctrl-D · SIGHUP · SIGTERM\n1. flush Langfuse\n"
+        "2. summarise, 20s cap\nsecond signal exits at once",
+        "process",
+        errors.right + GAP_X,
+        sess.y,
+        270,
     )
     c_repl = L.cluster("c_repl", "REPL  ·  main.py", ["repl", "sess", "errors", "shutdown"])
     user.x = c_repl.x + (c_repl.w - user.w) / 2
@@ -899,6 +900,115 @@ def to_drawio(L: Layout) -> str:
 # ---------------------------------------------------------------------------
 # preview, so the layout can be checked without opening a diagram tool
 # ---------------------------------------------------------------------------
+Point = tuple[float, float]
+
+
+def _route(a: Node, b: Node) -> list[Point]:
+    """An orthogonal route from the EDGE of a to the EDGE of b.
+
+    The previous version ran centre to centre, which drove every line straight
+    through the interiors of both boxes. Nodes paint over edges, so the line
+    vanished and only a stub survived in the gap - and a label placed at the
+    midpoint of that route landed on top of a box's text rather than in the
+    space between boxes. Leaving and entering at the edges puts the crossing
+    leg in the gap, which is where a label can actually go.
+    """
+    ax, bx = a.x + a.w / 2, b.x + b.w / 2
+    ay, by = a.y + a.h / 2, b.y + b.h / 2
+    if b.y > a.bottom:  # b is below a
+        mid = (a.bottom + b.y) / 2
+        return [(ax, a.bottom), (ax, mid), (bx, mid), (bx, b.y)]
+    if a.y > b.bottom:  # b is above a - a feedback edge
+        mid = (a.y + b.bottom) / 2
+        return [(ax, a.y), (ax, mid), (bx, mid), (bx, b.bottom)]
+    if b.x > a.right:  # side by side, b to the right
+        mid = (a.right + b.x) / 2
+        return [(a.right, ay), (mid, ay), (mid, by), (b.x, by)]
+    mid = (a.x + b.right) / 2  # side by side, b to the left
+    return [(a.x, ay), (mid, ay), (mid, by), (b.right, by)]
+
+
+def _arrowhead(d: object, route: list[Point], colour: str) -> None:
+    """A head on the last leg, pointing the way that leg actually travels.
+
+    All four directions, not just "arrives from above" - a third of the edges
+    here arrive sideways or from below, and assuming otherwise drew the head
+    detached from its own line.
+    """
+    (x0, y0), (x1, y1) = route[-2], route[-1]
+    dx, dy = x1 - x0, y1 - y0
+    size, half = 12.0, 7.0
+    if abs(dy) >= abs(dx):
+        sign = 1.0 if dy > 0 else -1.0
+        pts = [(x1, y1), (x1 - half, y1 - size * sign), (x1 + half, y1 - size * sign)]
+    else:
+        sign = 1.0 if dx > 0 else -1.0
+        pts = [(x1, y1), (x1 - size * sign, y1 - half), (x1 - size * sign, y1 + half)]
+    d.polygon(pts, fill=colour)  # type: ignore[attr-defined]
+
+
+def _label_spot(
+    route: list[Point], tw: float, th: float, blocked: list[tuple[float, float, float, float]]
+) -> tuple[float, float, bool]:
+    """Somewhere on the route where the label lands on nothing.
+
+    Walks every leg, longest first, and at each of several points along it
+    tries the line itself and then a set of offsets perpendicular to it -
+    sideways off a vertical leg, above and below a horizontal one. Takes the
+    first position that clears every box, every cluster title and every label
+    already placed.
+
+    Returns the position and whether it actually found a clear one, so main()
+    can report the failures rather than let them pass unnoticed: a preview that
+    quietly draws a label over a box is the thing this is meant to catch.
+    """
+    legs = sorted(
+        pairwise(route),
+        key=lambda leg: abs(leg[1][0] - leg[0][0]) + abs(leg[1][1] - leg[0][1]),
+        reverse=True,
+    )
+    for (x0, y0), (x1, y1) in legs:
+        vertical = abs(y1 - y0) >= abs(x1 - x0)
+        # Perpendicular to the leg: a vertical line has room to its left and
+        # right, a horizontal one above and below.
+        offsets: list[Point] = [(0.0, 0.0)]
+        if vertical:
+            for dist in (tw / 2 + 14, tw / 2 + 52):
+                offsets += [(dist, 0.0), (-dist, 0.0)]
+        else:
+            for dist in (th + 10, th + 34):
+                offsets += [(0.0, -dist), (0.0, dist)]
+        for t in (0.5, 0.35, 0.65, 0.2, 0.8):
+            px, py = x0 + (x1 - x0) * t, y0 + (y1 - y0) * t - th
+            for ox, oy in offsets:
+                cx, cy = px + ox, py + oy
+                rect = (cx - tw / 2 - 3, cy - 2, cx + tw / 2 + 3, cy + th)
+                if not any(
+                    rect[0] < bx1 and bx0 < rect[2] and rect[1] < by1 and by0 < rect[3]
+                    for bx0, by0, bx1, by1 in blocked
+                ):
+                    return cx, cy, True
+    # Nothing on the route itself. That happens for a hop between two boxes
+    # standing side by side: the horizontal run is GAP_X wide and the label is
+    # several times that, so it spills onto both. Widening GAP_X until every
+    # label fits would undo the whole point of tight gaps, so instead walk
+    # straight up and down from the midpoint until there is room. The label
+    # ends up a little off its line, which reads fine and beats sitting on
+    # top of a box's text.
+    (mx0, my0), (mx1, my1) = route[1], route[2]
+    cx, cy = (mx0 + mx1) / 2, (my0 + my1) / 2 - th
+    for step in range(1, 20):
+        for dy in (-step * (th + 6), step * (th + 6)):
+            for dx in (0.0, -tw / 2 - 20, tw / 2 + 20):
+                rect = (cx + dx - tw / 2 - 3, cy + dy - 2, cx + dx + tw / 2 + 3, cy + dy + th)
+                if not any(
+                    rect[0] < bx1 and bx0 < rect[2] and rect[1] < by1 and by0 < rect[3]
+                    for bx0, by0, bx1, by1 in blocked
+                ):
+                    return cx + dx, cy + dy, True
+    return cx, cy, False
+
+
 def to_png(L: Layout) -> None:
     from PIL import Image, ImageDraw, ImageFont
 
@@ -915,19 +1025,25 @@ def to_png(L: Layout) -> None:
         d.rectangle([c.x, c.y, c.right, c.bottom], outline="#b7c3d6", fill="#f7f9fc", width=2)
         d.text((c.x + 10, c.y + 6), c.title, fill="#5b6878", font=font)
 
-    labels: list[tuple[float, float, str, str]] = []
+    # Everything a label must not land on: a box, or a cluster's title strip.
+    blocked = [n.rect for n in L.nodes.values()]
+    blocked += [(c.x, c.y, c.right, c.y + Layout.TITLE_H) for c in L.clusters.values()]
+
+    crowded: list[str] = []
+    labels: list[tuple[float, float, float, float, str, str]] = []
     for e in L.edges:
         a, b = L.nodes[e.src], L.nodes[e.dst]
         colour = ARROW_COLOURS.get(e.style, "#555555")
-        ax, ay = a.x + a.w / 2, a.y + a.h / 2
-        bx, by = b.x + b.w / 2, b.y + b.h / 2
-        mid = (ay + by) / 2
-        d.line([ax, ay, ax, mid, bx, mid, bx, by], fill=colour, width=2)
-        # An arrowhead on the last leg, which is vertical into the target.
-        tip = by - b.h / 2 if by > mid else by + b.h / 2
-        sign = 1 if by > mid else -1
-        d.polygon([(bx, tip), (bx - 7, tip - 12 * sign), (bx + 7, tip - 12 * sign)], fill=colour)
-        labels.append(((ax + bx) / 2, mid - FONT_SIZE, e.label, colour))
+        route = _route(a, b)
+        d.line([p for xy in route for p in xy], fill=colour, width=2)
+        _arrowhead(d, route, colour)
+        tw = d.textlength(e.label, font=efont)
+        lx, ly, clear = _label_spot(route, tw, FONT_SIZE, blocked)
+        if not clear:
+            crowded.append(f"{e.src}->{e.dst} ({e.label})")
+        rect = (lx - tw / 2 - 3, ly - 2, lx + tw / 2 + 3, ly + FONT_SIZE)
+        blocked.append(rect)  # so two labels cannot stack on each other either
+        labels.append((lx, ly, tw, 0.0, e.label, colour))
 
     for n in L.nodes.values():
         _, fill, stroke = KINDS[n.kind]
@@ -941,12 +1057,13 @@ def to_png(L: Layout) -> None:
     # Labels last. draw.io paints an edge label over whatever it crosses, so a
     # preview that paints them underneath reports overlaps that will not happen
     # and hides the ones that will.
-    for lx, ly, text, colour in labels:
-        tw = d.textlength(text, font=efont)
+    for lx, ly, tw, _, text, colour in labels:
         d.rectangle([lx - tw / 2 - 3, ly - 2, lx + tw / 2 + 3, ly + FONT_SIZE], fill="white")
         d.text((lx - tw / 2, ly), text, fill=colour, font=efont)
 
     img.save(OUT_PNG)
+    if crowded:
+        print(f"  {len(crowded)} labels had nowhere clear to go: {', '.join(crowded)}")
 
 
 def main() -> None:
