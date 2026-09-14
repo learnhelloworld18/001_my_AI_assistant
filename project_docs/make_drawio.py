@@ -947,8 +947,42 @@ def _arrowhead(d: object, route: list[Point], colour: str) -> None:
     d.polygon(pts, fill=colour)  # type: ignore[attr-defined]
 
 
+def _above_target(a: Node, b: Node, clusters: dict[str, Cluster], th: float) -> Point:
+    """Where a label belongs if it can go there: just above what it points at.
+
+    "starts with /" means something above the meta-commands box and nothing
+    at all above the dragged-file box next to it. Left to the generic search
+    a branch label lands on the longest leg of its route, which for a fan-out
+    is the horizontal run - and that run passes over the SIBLING branches, so
+    each label ended up captioning its neighbour.
+
+    When the edge comes from outside the target's cluster, the spot is above
+    the cluster rather than above the box, so the label clears the cluster's
+    title strip instead of fighting it.
+    """
+    inner: Cluster | None = None
+    for c in clusters.values():
+        holds = c.x <= b.x and b.right <= c.right and c.y <= b.y and b.bottom <= c.bottom
+        if holds and (inner is None or c.w * c.h < inner.w * inner.h):
+            inner = c
+    if inner is not None:
+        from_inside = (
+            inner.x <= a.x
+            and a.right <= inner.right
+            and inner.y <= a.y
+            and a.bottom <= inner.bottom
+        )
+        if not from_inside:
+            return b.x + b.w / 2, inner.y - th - 8
+    return b.x + b.w / 2, b.y - th - 10
+
+
 def _label_spot(
-    route: list[Point], tw: float, th: float, blocked: list[tuple[float, float, float, float]]
+    route: list[Point],
+    tw: float,
+    th: float,
+    blocked: list[tuple[float, float, float, float]],
+    preferred: Point,
 ) -> tuple[float, float, bool]:
     """Somewhere on the route where the label lands on nothing.
 
@@ -962,6 +996,21 @@ def _label_spot(
     can report the failures rather than let them pass unnoticed: a preview that
     quietly draws a label over a box is the thing this is meant to catch.
     """
+
+    def clear(cx: float, cy: float) -> bool:
+        rect = (cx - tw / 2 - 3, cy - 2, cx + tw / 2 + 3, cy + th)
+        return not any(
+            rect[0] < bx1 and bx0 < rect[2] and rect[1] < by1 and by0 < rect[3]
+            for bx0, by0, bx1, by1 in blocked
+        )
+
+    # Above whatever the arrow points at, if that is free. Everything below is
+    # the fallback for when it is not.
+    px, py = preferred
+    for dx in (0.0, -tw / 4, tw / 4, -tw / 2, tw / 2):
+        if clear(px + dx, py):
+            return px + dx, py, True
+
     legs = sorted(
         pairwise(route),
         key=lambda leg: abs(leg[1][0] - leg[0][0]) + abs(leg[1][1] - leg[0][1]),
@@ -1038,8 +1087,9 @@ def to_png(L: Layout) -> None:
         d.line([p for xy in route for p in xy], fill=colour, width=2)
         _arrowhead(d, route, colour)
         tw = d.textlength(e.label, font=efont)
-        lx, ly, clear = _label_spot(route, tw, FONT_SIZE, blocked)
-        if not clear:
+        pref = _above_target(a, b, L.clusters, FONT_SIZE)
+        lx, ly, placed = _label_spot(route, tw, FONT_SIZE, blocked, pref)
+        if not placed:
             crowded.append(f"{e.src}->{e.dst} ({e.label})")
         rect = (lx - tw / 2 - 3, ly - 2, lx + tw / 2 + 3, ly + FONT_SIZE)
         blocked.append(rect)  # so two labels cannot stack on each other either
