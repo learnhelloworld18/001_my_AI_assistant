@@ -299,7 +299,14 @@ def compose() -> Layout:
     # Placed at x=0 and slid into place at the end, once the widest band below
     # has decided how wide the canvas actually is.
     user = L.node(
-        "user", "you\nany directory · the one you\nlaunch from is the project", "actor", 0, 0, 200
+        "user",
+        "user\nany directory\nthe one you launch from is the project",
+        "actor",
+        0,
+        0,
+        # Wide enough that the third line does not wrap: 38 characters at
+        # CHAR_W needs 480px, and 300 * BOX is 510.
+        300,
     )
 
     yr = user.bottom + GAP_B + BAND_CHROME
