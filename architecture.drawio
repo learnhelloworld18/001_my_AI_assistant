@@ -289,16 +289,16 @@
         <mxCell id="e20" value="fetch_traces · session or window" parent="1" edge="1" source="c_stats" target="lf" style="edgeStyle=orthogonalEdgeStyle;rounded=0;html=1;jettySize=auto;orthogonalLoop=1;jumpStyle=arc;jumpSize=10;strokeColor=#777777;strokeWidth=2;dashed=1;dashPattern=1 4;endArrow=open;endFill=0;fontSize=17;labelBackgroundColor=#ffffff;">
           <mxGeometry relative="1" as="geometry" />
         </mxCell>
-        <mxCell id="e21" value="code" parent="1" edge="1" source="sup" target="cg_read" style="edgeStyle=orthogonalEdgeStyle;rounded=0;html=1;jettySize=auto;orthogonalLoop=1;jumpStyle=arc;jumpSize=10;strokeColor=#333333;strokeWidth=2;endArrow=classic;endFill=1;fontSize=17;labelBackgroundColor=#ffffff;">
+        <mxCell id="e21" value="code" parent="1" edge="1" source="sup" target="cg_read" style="edgeStyle=orthogonalEdgeStyle;rounded=0;html=1;jettySize=auto;orthogonalLoop=1;jumpStyle=arc;jumpSize=10;strokeColor=#1f3d6e;strokeWidth=5;endArrow=classic;endFill=1;fontSize=17;labelBackgroundColor=#ffffff;">
           <mxGeometry relative="1" as="geometry" />
         </mxCell>
-        <mxCell id="e22" value="your documents" parent="1" edge="1" source="sup" target="dg" style="edgeStyle=orthogonalEdgeStyle;rounded=0;html=1;jettySize=auto;orthogonalLoop=1;jumpStyle=arc;jumpSize=10;strokeColor=#333333;strokeWidth=2;endArrow=classic;endFill=1;fontSize=17;labelBackgroundColor=#ffffff;">
+        <mxCell id="e22" value="your documents" parent="1" edge="1" source="sup" target="dg" style="edgeStyle=orthogonalEdgeStyle;rounded=0;html=1;jettySize=auto;orthogonalLoop=1;jumpStyle=arc;jumpSize=10;strokeColor=#1f3d6e;strokeWidth=5;endArrow=classic;endFill=1;fontSize=17;labelBackgroundColor=#ffffff;">
           <mxGeometry relative="1" as="geometry" />
         </mxCell>
-        <mxCell id="e23" value="the web" parent="1" edge="1" source="sup" target="rg" style="edgeStyle=orthogonalEdgeStyle;rounded=0;html=1;jettySize=auto;orthogonalLoop=1;jumpStyle=arc;jumpSize=10;strokeColor=#333333;strokeWidth=2;endArrow=classic;endFill=1;fontSize=17;labelBackgroundColor=#ffffff;">
+        <mxCell id="e23" value="the web" parent="1" edge="1" source="sup" target="rg" style="edgeStyle=orthogonalEdgeStyle;rounded=0;html=1;jettySize=auto;orthogonalLoop=1;jumpStyle=arc;jumpSize=10;strokeColor=#1f3d6e;strokeWidth=5;endArrow=classic;endFill=1;fontSize=17;labelBackgroundColor=#ffffff;">
           <mxGeometry relative="1" as="geometry" />
         </mxCell>
-        <mxCell id="e24" value="chat · drafting" parent="1" edge="1" source="sup" target="general" style="edgeStyle=orthogonalEdgeStyle;rounded=0;html=1;jettySize=auto;orthogonalLoop=1;jumpStyle=arc;jumpSize=10;strokeColor=#333333;strokeWidth=2;endArrow=classic;endFill=1;fontSize=17;labelBackgroundColor=#ffffff;">
+        <mxCell id="e24" value="chat · drafting" parent="1" edge="1" source="sup" target="general" style="edgeStyle=orthogonalEdgeStyle;rounded=0;html=1;jettySize=auto;orthogonalLoop=1;jumpStyle=arc;jumpSize=10;strokeColor=#1f3d6e;strokeWidth=5;endArrow=classic;endFill=1;fontSize=17;labelBackgroundColor=#ffffff;">
           <mxGeometry relative="1" as="geometry" />
         </mxCell>
         <mxCell id="e25" value="every span" parent="1" edge="1" source="sup" target="lf" style="edgeStyle=orthogonalEdgeStyle;rounded=0;html=1;jettySize=auto;orthogonalLoop=1;jumpStyle=arc;jumpSize=10;strokeColor=#777777;strokeWidth=2;dashed=1;dashPattern=1 4;endArrow=open;endFill=0;fontSize=17;labelBackgroundColor=#ffffff;">

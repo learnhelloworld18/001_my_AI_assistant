@@ -83,6 +83,13 @@ MARGIN = 40
 # of the intended 84. Bands add it back, so GAP_B is the gap you actually see.
 BAND_CHROME = 20 + round(30 * BOX)
 
+# How far a route must stay off a box it is not attached to. Missing a box by
+# a pixel still reads as touching it - the run to docs_agent traced the bottom
+# edge of /stats and looked connected to it. 16 is the ceiling, not a taste:
+# the tightest corridors are GAP_Y=44, and at 20 a side nothing fits through
+# them and assert_routes_clear fails outright.
+CLEARANCE = 16.0
+
 # A rhombus only offers its text the middle band of its bounding box, so a
 # decision needs a bigger box than its caption alone would suggest.
 DECISION_SLACK_W, DECISION_SLACK_H = 1.25, 1.7
@@ -112,6 +119,9 @@ KINDS = {
 JUMPS = "jumpStyle=arc;jumpSize=10;"
 EDGES = {
     "path": "strokeColor=#333333;strokeWidth=2;endArrow=classic;endFill=1;",
+    # The routing decision is the one thing the whole graph turns on, so its
+    # four hand-offs are drawn heavier than the plumbing around them.
+    "route": "strokeColor=#1f3d6e;strokeWidth=5;endArrow=classic;endFill=1;",
     "stop": "strokeColor=#b02c2c;strokeWidth=2;endArrow=classic;endFill=1;",
     "data": "strokeColor=#2f5fbf;strokeWidth=2;endArrow=classic;endFill=1;",
     "back": "strokeColor=#333333;strokeWidth=2;dashed=1;endArrow=classic;endFill=1;",
@@ -119,7 +129,8 @@ EDGES = {
         "strokeColor=#777777;strokeWidth=2;dashed=1;dashPattern=1 4;endArrow=open;endFill=0;"
     ),
 }
-ARROW_COLOURS = {"stop": "#b02c2c", "data": "#2f5fbf", "trace": "#999999"}
+ARROW_COLOURS = {"stop": "#b02c2c", "data": "#2f5fbf", "trace": "#999999", "route": "#1f3d6e"}
+STROKE_W = {"route": 5}  # preview line width; everything else is 2
 
 
 def _wrap(label: str, width_px: float) -> list[str]:
@@ -743,10 +754,10 @@ def compose() -> Layout:
     L.edge("chroma", "sup", "recalled once, next session", "back")
     L.edge("c_stats", "lf", "fetch_traces · session or window", "trace")
 
-    L.edge("sup", "cg_read", "code")
-    L.edge("sup", "dg", "your documents")
-    L.edge("sup", "rg", "the web")
-    L.edge("sup", "general", "chat · drafting")
+    L.edge("sup", "cg_read", "code", "route")
+    L.edge("sup", "dg", "your documents", "route")
+    L.edge("sup", "rg", "the web", "route")
+    L.edge("sup", "general", "chat · drafting", "route")
     L.edge("sup", "lf", "every span", "trace")
     L.edge("lf", "lfdb", "spans + scores", "trace")
 
@@ -951,7 +962,12 @@ def _crosses(route: list[Point], nodes: list[Node], skip: set[str]) -> bool:
         for n in nodes:
             if n.id in skip:
                 continue
-            if n.x < hi_x and lo_x < n.right and n.y < hi_y and lo_y < n.bottom:
+            if (
+                n.x - CLEARANCE < hi_x
+                and lo_x < n.right + CLEARANCE
+                and n.y - CLEARANCE < hi_y
+                and lo_y < n.bottom + CLEARANCE
+            ):
                 return True
     return False
 
@@ -990,7 +1006,11 @@ def _grid_route(a: Node, b: Node, nodes: list[Node], pad: float = 16.0) -> list[
         lo_x, hi_x = min(x0, x1), max(x0, x1)
         lo_y, hi_y = min(y0, y1), max(y0, y1)
         return not any(
-            n.x < hi_x and lo_x < n.right and n.y < hi_y and lo_y < n.bottom for n in obstacles
+            n.x - CLEARANCE < hi_x
+            and lo_x < n.right + CLEARANCE
+            and n.y - CLEARANCE < hi_y
+            and lo_y < n.bottom + CLEARANCE
+            for n in obstacles
         )
 
     start, goal = (xi[ax], yi[ay]), (xi[bx], yi[by])
@@ -1081,7 +1101,12 @@ def _clear_run(
     boxes = [n for n in nodes if n.id not in skip]
 
     def crosses(y: float) -> bool:
-        return any(n.x < right and left < n.right and n.y < y < n.bottom for n in boxes)
+        return any(
+            n.x - CLEARANCE < right
+            and left < n.right + CLEARANCE
+            and n.y - CLEARANCE < y < n.bottom + CLEARANCE
+            for n in boxes
+        )
 
     if not crosses(mid):
         return mid
@@ -1143,6 +1168,7 @@ def _draw_hopped(
     idx: int,
     verticals: list[tuple[int, float, float, float]],
     colour: str,
+    width: int = 2,
 ) -> None:
     """Draw a route, arcing over every other line it crosses.
 
@@ -1153,7 +1179,7 @@ def _draw_hopped(
     """
     for (x0, y0), (x1, y1) in pairwise(route):
         if y0 != y1:  # vertical leg - drawn straight, it is the one hopped over
-            d.line([x0, y0, x1, y1], fill=colour, width=2)  # type: ignore[attr-defined]
+            d.line([x0, y0, x1, y1], fill=colour, width=width)  # type: ignore[attr-defined]
             continue
         lo, hi = min(x0, x1), max(x0, x1)
         cuts = sorted(
@@ -1166,16 +1192,16 @@ def _draw_hopped(
         step = 1.0 if x1 > x0 else -1.0
         at = x0
         for cx in cuts:
-            d.line([at, y0, cx - HOP_R * step, y0], fill=colour, width=2)  # type: ignore[attr-defined]
+            d.line([at, y0, cx - HOP_R * step, y0], fill=colour, width=width)  # type: ignore[attr-defined]
             d.arc(  # type: ignore[attr-defined]
                 [cx - HOP_R, y0 - HOP_R, cx + HOP_R, y0 + HOP_R],
                 180,
                 360,
                 fill=colour,
-                width=2,
+                width=width,
             )
             at = cx + HOP_R * step
-        d.line([at, y0, x1, y1], fill=colour, width=2)  # type: ignore[attr-defined]
+        d.line([at, y0, x1, y1], fill=colour, width=width)  # type: ignore[attr-defined]
 
 
 def _arrowhead(d: object, route: list[Point], colour: str) -> None:
@@ -1341,14 +1367,27 @@ def to_png(L: Layout) -> None:
         for (x0, y0), (x1, y1) in pairwise(r)
         if x0 == x1
     ]
+    # Every route as a set of thin rectangles, so a label can be kept off the
+    # LINES as well as the boxes. "every span" sat in the channel between two
+    # vertical runs and touched both, which reads as if it captions either.
+    LINE_T = 7.0
+    segs: list[list[tuple[float, float, float, float]]] = [
+        [
+            (min(x0, x1) - LINE_T, min(y0, y1) - LINE_T, max(x0, x1) + LINE_T, max(y0, y1) + LINE_T)
+            for (x0, y0), (x1, y1) in pairwise(r)
+        ]
+        for r in routes
+    ]
     for i, (e, route) in enumerate(zip(L.edges, routes, strict=True)):
         a, b = L.nodes[e.src], L.nodes[e.dst]
         colour = ARROW_COLOURS.get(e.style, "#555555")
-        _draw_hopped(d, route, i, verticals, colour)
+        _draw_hopped(d, route, i, verticals, colour, STROKE_W.get(e.style, 2))
         _arrowhead(d, route, colour)
         tw = d.textlength(e.label, font=efont)
         pref = _above_target(a, b, L.clusters, FONT_SIZE)
-        lx, ly, placed = _label_spot(route, tw, FONT_SIZE, blocked, pref)
+        # Its own line is not an obstacle - a label belongs on it.
+        others = [r for j, rects in enumerate(segs) if j != i for r in rects]
+        lx, ly, placed = _label_spot(route, tw, FONT_SIZE, blocked + others, pref)
         if not placed:
             crowded.append(f"{e.src}->{e.dst} ({e.label})")
         rect = (lx - tw / 2 - 3, ly - 2, lx + tw / 2 + 3, ly + FONT_SIZE)
