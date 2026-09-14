@@ -26,7 +26,7 @@
           <mxGeometry x="1716" y="1971" width="834" height="532" as="geometry" />
         </mxCell>
         <mxCell id="c_store" value="storage  ·  ~/.myassistant  ·  embedded, no server" parent="1" vertex="1" style="rounded=0;whiteSpace=wrap;html=1;fillColor=#f7f9fc;strokeColor=#b7c3d6;dashed=1;verticalAlign=top;align=left;spacingLeft=10;spacingTop=4;fontSize=20;fontColor=#5b6878;">
-          <mxGeometry x="3061" y="1971" width="936" height="578" as="geometry" />
+          <mxGeometry x="3061" y="1971" width="936" height="605" as="geometry" />
         </mxCell>
         <mxCell id="c_safe" value="tools/safety.py  ·  PROJECT_ROOT = cwd captured at launch" parent="1" vertex="1" style="rounded=0;whiteSpace=wrap;html=1;fillColor=#f7f9fc;strokeColor=#b7c3d6;dashed=1;verticalAlign=top;align=left;spacingLeft=10;spacingTop=4;fontSize=20;fontColor=#5b6878;">
           <mxGeometry x="20" y="2709" width="1454" height="526" as="geometry" />
@@ -163,8 +163,8 @@
         <mxCell id="embed" value="nomic-embed-text&lt;br&gt;OllamaEmbeddings" parent="1" vertex="1" style="rounded=1;arcSize=12;whiteSpace=wrap;html=1;fillColor=#e8eef9;strokeColor=#3b5f9e;fontSize=20;verticalAlign=middle;align=center;">
           <mxGeometry x="3552" y="2201" width="425" height="88" as="geometry" />
         </mxCell>
-        <mxCell id="chroma" value="Chroma&lt;br&gt;tech_notes&lt;br&gt;resume_interview&lt;br&gt;conversation_memory" parent="1" vertex="1" style="shape=cylinder3;boundedLbl=1;backgroundOutline=1;size=14;whiteSpace=wrap;html=1;fillColor=#fdeae6;strokeColor=#b4553a;fontSize=20;verticalAlign=middle;align=center;">
-          <mxGeometry x="3081" y="2387" width="425" height="142" as="geometry" />
+        <mxCell id="chroma" value="Chroma  ·  three collections, kept apart&lt;br&gt;tech_notes  ·  /ingest  ·  search_notes&lt;br&gt;resume_interview  ·  /ingest resume  ·  search_resume&lt;br&gt;conversation_memory  ·  /remember + summaries&lt;br&gt;recall() holds 2 of 3 slots for your own notes" parent="1" vertex="1" style="shape=cylinder3;boundedLbl=1;backgroundOutline=1;size=14;whiteSpace=wrap;html=1;fillColor=#fdeae6;strokeColor=#b4553a;fontSize=20;verticalAlign=middle;align=center;">
+          <mxGeometry x="3081" y="2387" width="680" height="169" as="geometry" />
         </mxCell>
         <mxCell id="s_path" value="safe_path()&lt;br&gt;resolve() BEFORE the check&lt;br&gt;catches ../.. and symlinks" parent="1" vertex="1" style="rhombus;whiteSpace=wrap;html=1;fillColor=#fdf3d8;strokeColor=#b5892a;fontSize=20;verticalAlign=middle;align=center;">
           <mxGeometry x="40" y="2780" width="446" height="196" as="geometry" />

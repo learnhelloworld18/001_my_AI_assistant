@@ -577,11 +577,21 @@ def compose() -> Layout:
     L.node("embed", "nomic-embed-text\nOllamaEmbeddings", "process", chunker.x, mem.y, 250)
     L.node(
         "chroma",
-        "Chroma\ntech_notes\nresume_interview\nconversation_memory",
+        # Named three ways round - the collection, who writes it, who reads it.
+        # The names alone were the source of a real confusion: "/ingest <path>
+        # notes" means tech_notes, while "/remember" means conversation_memory,
+        # so two unrelated things both read as "my notes".
+        "Chroma  ·  three collections, kept apart\n"
+        "tech_notes  ·  /ingest  ·  search_notes\n"
+        "resume_interview  ·  /ingest resume  ·  search_resume\n"
+        "conversation_memory  ·  /remember + summaries\n"
+        "recall() holds 2 of 3 slots for your own notes",
         "store",
         xs,
         mem.bottom + GAP_Y,
-        250,
+        # The longest line is 53 characters, which needs 655px; 400 * BOX
+        # is 680. Sized from the text rather than nudged until it fitted.
+        400,
     )
     c_store = L.cluster(
         "c_store",
